@@ -1949,6 +1949,739 @@ def store_join(cid, req, ip):
 
 
 # ================================================================
+#  ATTENDANCE
+#  ----------------------------------------------------------------
+#  The owner's rules, confirmed:
+#    duty 09:00 to 18:00
+#    09:30 is on time, 09:31 is late, compared to the minute
+#    after 18:00 is overtime
+#    Sunday is a paid weekly off
+#    holidays are paid, and chosen by the admin by hand
+#    a technician sent straight to a client must be there by 09:30 too
+#    a missing check-out is flagged for the admin, never guessed
+# ================================================================
+
+import datetime as _dt
+
+PK = _dt.timezone(_dt.timedelta(hours=5))      # Pakistan keeps no summer time
+
+HR_POLICY_DEFAULT = {"duty_start": "09:00", "duty_end": "18:00",
+                     "late_after": "09:30", "weekly_off": 6}  # Monday=0 .. Sunday=6
+
+_hr_lock = threading.Lock()
+
+
+def pk_now():
+    return _dt.datetime.now(PK)
+
+
+def _hr_path(cid):
+    return os.path.join(DATA_DIR, str(cid or "main") + "-hr.json")
+
+
+def hr_load(cid):
+    try:
+        with open(_hr_path(cid), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        d = {}
+    for k in ("attendance", "holidays", "sessions"):
+        d.setdefault(k, {})
+    d.setdefault("policy", dict(HR_POLICY_DEFAULT))
+    return d
+
+
+def hr_save(cid, d):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = _hr_path(cid) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(d, fh)
+    os.replace(tmp, _hr_path(cid))
+
+
+# ---------- who is asking ----------
+# A session is given for a person's own name and password, checked against
+# the same hash the app keeps. After that the phone carries only the session.
+
+def _user_by_name(cid, name):
+    name = str(name or "").strip().lower()
+    for u in store_load(cid).get("users", {}).values():
+        if isinstance(u, dict) and str(u.get("email", "")).strip().lower() == name:
+            return u
+    return None
+
+
+def _user_by_id(cid, uid):
+    return store_load(cid).get("users", {}).get(uid)
+
+
+def hr_login(cid, req, ip):
+    if not _join_allowed(ip):
+        return {"ok": False, "msg": "Too many wrong tries. Wait fifteen minutes."}
+    u = _user_by_name(cid, req.get("user"))
+    plain = str(req.get("pass") or "")
+    if u and u.get("active", True) and u.get("passHash"):
+        h = _jh.sha256(("paragon:%s:%s" % (u.get("id"), plain)).encode("utf-8")).hexdigest()
+        if hmac.compare_digest(h, str(u.get("passHash"))):
+            tok = secrets.token_hex(24)
+            with _hr_lock:
+                d = hr_load(cid)
+                cut = time.time()
+                d["sessions"] = {t: s for t, s in d["sessions"].items()
+                                 if s.get("exp", 0) > cut}
+                d["sessions"][tok] = {"user": u["id"], "exp": cut + 30 * 86400}
+                hr_save(cid, d)
+            return {"ok": True, "token": tok, "user": u["id"], "role": u.get("role")}
+    _join_failed(ip)
+    return {"ok": False, "msg": "That user name or password is not right."}
+
+
+def _session(cid, req):
+    """The person behind a request, looked up fresh every time, so a role
+    changed or an account switched off takes effect at once."""
+    tok = str(req.get("token") or "")
+    d = hr_load(cid)
+    s = d["sessions"].get(tok)
+    if not s or s.get("exp", 0) < time.time():
+        return None
+    u = _user_by_id(cid, s.get("user"))
+    if not u or not u.get("active", True):
+        return None
+    return u
+
+
+# ---------- a day ----------
+
+def _hhmm(iso):
+    return str(iso or "")[11:16]
+
+
+def _classify(rec, policy):
+    """Late and overtime are worked out here, from the times, and never
+    typed. A typed late mark cannot be checked against what it claims."""
+    out = dict(rec)
+    tin = _hhmm(rec.get("in"))
+    out["late"] = bool(tin) and tin > policy["late_after"]
+    ot = 0
+    tout = _hhmm(rec.get("out"))
+    if tout and tout > policy["duty_end"]:
+        a = [int(x) for x in policy["duty_end"].split(":")]
+        b = [int(x) for x in tout.split(":")]
+        ot = (b[0] * 60 + b[1]) - (a[0] * 60 + a[1])
+    out["ot_min"] = ot                     # raw minutes; the salary rounds them
+    out["no_out"] = bool(rec.get("in")) and not rec.get("out") and \
+        rec.get("day", "") < pk_now().strftime("%Y-%m-%d")
+    return out
+
+
+def _stamp(req_time):
+    """The server's own clock decides the time of a check-in made live. A
+    phone whose clock is wrong, or has been set wrong, cannot move it. A
+    check-in that was queued without signal keeps the phone's time, and is
+    marked so the admin can see it was not live."""
+    now = pk_now()
+    try:
+        t = _dt.datetime.fromisoformat(str(req_time))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=PK)
+    except (ValueError, TypeError):
+        t = None
+    if t is None or abs((now - t).total_seconds()) <= 300:
+        return now.isoformat(timespec="seconds"), False
+    return t.astimezone(PK).isoformat(timespec="seconds"), True
+
+
+def _admins(cid):
+    return [u for u in store_load(cid).get("users", {}).values()
+            if isinstance(u, dict) and u.get("role") == "admin" and u.get("active", True)]
+
+
+def _tell_admins(cid, what, detail):
+    """A note to every admin, through the same notes the app already rings
+    the phone for."""
+    stamp = pk_now().isoformat(timespec="seconds")
+    recs = {}
+    for a in _admins(cid):
+        nid = "hr" + secrets.token_hex(6)
+        recs[nid] = {"id": nid, "to": a["id"], "what": what, "detail": detail,
+                     "link": "", "at": stamp, "read": False, "_at": stamp}
+    if recs:
+        store_push(cid, {"records": {"notes": recs}})
+
+
+def att_in(cid, req, u):
+    when, queued = _stamp(req.get("time"))
+    day = when[:10]
+    rid = u["id"] + "|" + day
+    with _hr_lock:
+        d = hr_load(cid)
+        have = d["attendance"].get(rid)
+        if have and have.get("in"):
+            return {"ok": True, "already": True, "rec": _classify(have, d["policy"])}
+        rec = have or {"id": rid, "user": u["id"], "day": day}
+        rec.update({"in": when, "inPlace": str(req.get("place") or ""),
+                    "inQueued": queued, "status": "present"})
+        d["attendance"][rid] = rec
+        hr_save(cid, d)
+        c = _classify(rec, d["policy"])
+    if c["late"]:
+        _tell_admins(cid, "Late check-in", "%s \u00b7 %s" % (u.get("name"), _hhmm(when)))
+    return {"ok": True, "rec": c}
+
+
+def att_out(cid, req, u):
+    when, queued = _stamp(req.get("time"))
+    day = when[:10]
+    rid = u["id"] + "|" + day
+    with _hr_lock:
+        d = hr_load(cid)
+        rec = d["attendance"].get(rid)
+        if not rec or not rec.get("in"):
+            return {"ok": False, "msg": "There is no check-in today to check out from."}
+        rec.update({"out": when, "outPlace": str(req.get("place") or ""),
+                    "outQueued": queued})
+        hr_save(cid, d)
+        return {"ok": True, "rec": _classify(rec, d["policy"])}
+
+
+def _strip(rec, admin):
+    """A person sees their own times; only an admin sees where they were."""
+    if admin:
+        return rec
+    return {k: v for k, v in rec.items() if k not in ("inPlace", "outPlace")}
+
+
+def att_month(cid, req, u):
+    """Every day of a month, for one person or, for an admin, everyone.
+    A working day with nothing recorded is absent \u2014 decided here, not
+    left as a gap."""
+    admin = u.get("role") == "admin"
+    month = str(req.get("month") or pk_now().strftime("%Y-%m"))[:7]
+    who = req.get("user") if admin and req.get("user") else (None if admin else u["id"])
+    d = hr_load(cid)
+    pol = d["policy"]
+    hol = {h["day"]: h.get("name", "") for h in d["holidays"].values()
+           if str(h.get("day", "")).startswith(month)}
+    y, m = int(month[:4]), int(month[5:7])
+    first = _dt.date(y, m, 1)
+    nxt = _dt.date(y + (m == 12), m % 12 + 1, 1)
+    today = pk_now().date()
+    users = [x for x in store_load(cid).get("users", {}).values()
+             if isinstance(x, dict) and x.get("active", True)
+             and (who is None or x.get("id") == who)]
+    people = []
+    for p in users:
+        rows, sums = [], {"present": 0, "half": 0, "late": 0, "absent": 0, "leave": 0,
+                          "holiday": 0, "weekly_off": 0, "ot_min": 0, "no_out": 0}
+        day = first
+        while day < nxt and day <= today:
+            ds = day.isoformat()
+            rec = d["attendance"].get(p["id"] + "|" + ds)
+            if rec and rec.get("status") == "leave":
+                row = dict(rec); row["status"] = "leave"
+            elif rec and rec.get("in"):
+                row = _classify(rec, pol)
+                row["status"] = "half" if rec.get("status") == "half" else "present"
+            elif ds in hol:
+                row = {"day": ds, "status": "holiday", "name": hol[ds]}
+            elif day.weekday() == pol.get("weekly_off", 6):
+                row = {"day": ds, "status": "weekly_off"}
+            else:
+                # an absence keeps whatever the admin decided about it
+                row = {k: v for k, v in (rec or {}).items() if k not in ("in", "out")}
+                row.update({"day": ds, "status": "absent"})
+            sums[row["status"]] = sums.get(row["status"], 0) + 1
+            if row.get("late"):
+                sums["late"] += 1
+            sums["ot_min"] += row.get("ot_min", 0) or 0
+            if row.get("no_out"):
+                sums["no_out"] += 1
+            rows.append(_strip(row, admin))
+            day += _dt.timedelta(days=1)
+        people.append({"user": p["id"], "name": p.get("name"), "sums": sums, "rows": rows})
+    return {"ok": True, "month": month, "people": people,
+            "holidays": sorted(hol.items()), "policy": pol}
+
+
+def att_fix(cid, req, u):
+    """An admin correcting a day. The reason is required, and what it said
+    before is kept, because a payroll dispute always comes down to "what did
+    it say before?"."""
+    if u.get("role") != "admin":
+        return {"ok": False, "msg": "Only an admin corrects attendance."}
+    note = str(req.get("note") or "").strip()
+    if not note:
+        return {"ok": False, "msg": "A reason is required for every correction."}
+    who, day = str(req.get("user") or ""), str(req.get("day") or "")[:10]
+    if not who or len(day) != 10:
+        return {"ok": False, "msg": "Choose the person and the day."}
+    rid = who + "|" + day
+    stamp = pk_now().isoformat(timespec="seconds")
+    with _hr_lock:
+        d = hr_load(cid)
+        rec = d["attendance"].get(rid) or {"id": rid, "user": who, "day": day}
+        before = {k: rec.get(k) for k in ("in", "out", "status")}
+        status = req.get("status") or "present"
+        if status == "leave":
+            rec["status"] = "leave"
+            rec.pop("in", None); rec.pop("out", None)
+        else:
+            rec["status"] = "present"
+            for k in ("in", "out"):
+                v = str(req.get(k) or "").strip()
+                if v:
+                    rec[k] = day + "T" + v[:5] + ":00+05:00"
+                elif k in req:
+                    rec.pop(k, None)
+        rec.setdefault("history", []).append(
+            {"by": u.get("name"), "at": stamp, "note": note, "before": before})
+        rec["correctedBy"] = u.get("name")
+        rec["correctedAt"] = stamp
+        d["attendance"][rid] = rec
+        hr_save(cid, d)
+        return {"ok": True, "rec": _classify(rec, d["policy"])}
+
+
+def hol_set(cid, req, u):
+    if u.get("role") != "admin":
+        return {"ok": False, "msg": "Only an admin sets holidays."}
+    day = str(req.get("day") or "")[:10]
+    name = str(req.get("name") or "").strip()
+    if len(day) != 10 or not name:
+        return {"ok": False, "msg": "A holiday needs a date and a name."}
+    with _hr_lock:
+        d = hr_load(cid)
+        if req.get("remove"):
+            d["holidays"].pop(day, None)
+        else:
+            d["holidays"][day] = {"day": day, "name": name, "paid": True,
+                                  "by": u.get("name")}
+        hr_save(cid, d)
+    return {"ok": True}
+
+
+def hr_route(cid, req, ip):
+    act = req.get("action")
+    if act == "login":
+        return hr_login(cid, req, ip)
+    u = _session(cid, req)
+    if not u:
+        return {"ok": False, "signin": True, "msg": "Sign in again to use attendance."}
+    if act == "in":      return att_in(cid, req, u)
+    if act == "out":     return att_out(cid, req, u)
+    if act == "month":   return att_month(cid, req, u)
+    if act == "fix":     return att_fix(cid, req, u)
+    if act == "holiday": return hol_set(cid, req, u)
+    if act == "whoami":  return {"ok": True, "user": u["id"], "role": u.get("role")}
+    if act in ("slips.mine", "overview", "person", "rate", "advance", "bonus",
+               "approve", "slips.make", "slips.month", "slips.final"):
+        return pay_route(cid, req, u)
+    return {"ok": False, "msg": "Unknown action"}
+
+
+def hr_watch(cid="main"):
+    """Once a day, late in the evening: anyone who checked in and has not
+    checked out is flagged to the admin, so it is fixed while it is fresh."""
+    done = ""
+    while True:
+        try:
+            now = pk_now()
+            day = now.strftime("%Y-%m-%d")
+            if now.strftime("%H:%M") >= "22:30" and done != day:
+                done = day
+                d = hr_load(cid)
+                open_ = [r for r in d["attendance"].values()
+                         if r.get("day") == day and r.get("in") and not r.get("out")]
+                if open_:
+                    names = ", ".join((_user_by_id(cid, r["user"]) or {}).get("name", "?")
+                                      for r in open_)
+                    _tell_admins(cid, "No check-out today", names)
+        except Exception as e:
+            note("HR WATCH", repr(e))
+        time.sleep(300)
+
+
+# ================================================================
+#  SALARY
+#  ----------------------------------------------------------------
+#  The owner's decisions, every one of them, so nothing is guessed:
+#    per day = basic / 30, per hour = per day / 8          (always)
+#    3 late marks = 1 day, divided exactly (7 lates = 2.33 days)
+#    overtime counts in whole hours only, and only once the admin
+#      approves that day (18:47 is nothing; 19:47 is one hour)
+#    a half day costs half a day unless the admin makes it paid
+#    an absence without leave costs one day, like a leave
+#    leaving early costs every minute, unless the admin approves it
+#    only public holidays are paid leave; the admin may forgive any
+#      deduction before the salary, and each one is printed on the slip
+#    a net below zero is shown as it is: the person owes the rest
+#    joining or leaving mid-month: basic / 30 x the days employed
+#    a final month recovers every advance in full
+#  And the rules of the specification:
+#    a rate is never edited; a raise is a new rate from a date
+#    a slip is a draft until finalised, and then frozen
+#    an advance's balance is always counted from its recoveries
+#    a recovery is written only when a slip is finalised
+# ================================================================
+
+
+def _money(x):
+    return float("%.4f" % x)
+
+
+def _days_between(a, b):
+    return (_dt.date.fromisoformat(b) - _dt.date.fromisoformat(a)).days + 1
+
+
+def _rate_for(d, uid, month):
+    """The rate in force for that month: the latest one agreed on or before
+    the month's last day. Never the current one for an old month."""
+    y, m = int(month[:4]), int(month[5:7])
+    last = (_dt.date(y + (m == 12), m % 12 + 1, 1) - _dt.timedelta(days=1)).isoformat()
+    rates = [r for r in d.get("rates", {}).values()
+             if r.get("user") == uid and str(r.get("from", "")) <= last]
+    rates.sort(key=lambda r: (r.get("from", ""), r.get("at", "")))
+    return rates[-1] if rates else None
+
+
+def _balance(d, adv):
+    got = sum(r["amount"] for r in d.get("recoveries", {}).values()
+              if r.get("advance") == adv["id"])
+    return round(adv["amount"] - got, 2)
+
+
+def _instalment_due(d, adv, month, final):
+    bal = _balance(d, adv)
+    if bal <= 0 or adv.get("status") == "written_off":
+        return 0
+    if str(adv.get("first", "")) > month:
+        return 0
+    if final:
+        return bal                       # the last month takes all of it
+    n = max(1, int(adv.get("instalments") or 1))
+    base = int(adv["amount"] // n)
+    done = sum(1 for r in d.get("recoveries", {}).values() if r.get("advance") == adv["id"])
+    this = adv["amount"] - base * (n - 1) if done + 1 >= n else base
+    return min(this, bal)
+
+
+def pay_calculate(cid, uid, month):
+    """One person's month, every line from the attendance rows themselves."""
+    d = hr_load(cid)
+    pol = d["policy"]
+    person = d.get("people", {}).get(uid, {})
+    user = _user_by_id(cid, uid) or {}
+    rate = _rate_for(d, uid, month)
+    if not rate:
+        return {"ok": False, "msg": "%s has no salary rate for this month yet."
+                % (user.get("name") or uid)}
+    basic = float(rate["basic"])
+    per_day = basic / 30.0
+    per_hour = per_day / 8.0
+    per_min = per_hour / 60.0
+
+    y, m = int(month[:4]), int(month[5:7])
+    first = _dt.date(y, m, 1).isoformat()
+    last = (_dt.date(y + (m == 12), m % 12 + 1, 1) - _dt.timedelta(days=1)).isoformat()
+    start = max(first, str(person.get("joined") or first))
+    end = min(last, str(person.get("left") or last))
+    if start > end:
+        return {"ok": False, "msg": "%s was not employed in this month."
+                % (user.get("name") or uid)}
+    full_month = start == first and end == last
+    days_employed = _days_between(start, end)
+    basic_due = basic if full_month else per_day * days_employed
+    final = bool(person.get("left")) and str(person["left"])[:7] == month
+
+    month_view = att_month(cid, {"month": month, "user": uid}, {"role": "admin", "id": uid})
+    rows = [r for p in month_view["people"] if p["user"] == uid for r in p["rows"]]
+    rows = [r for r in rows if start <= r["day"] <= end]
+
+    de = [int(x) for x in pol["duty_end"].split(":")]
+    end_min = de[0] * 60 + de[1]
+    lates = absents = leaves = present = holidays = offs = 0
+    halves_unpaid = 0.0
+    ot_hours = 0
+    early_min = 0
+    concessions, no_out, table = [], [], []
+    for r in rows:
+        waive = set(r.get("waive") or [])
+        note = r.get("waiveNote") or ""
+        st = r["status"]
+        line = {"day": r["day"], "status": st, "in": _hhmm(r.get("in")),
+                "out": _hhmm(r.get("out")), "late": False, "ot_h": 0, "early": 0}
+        if st in ("present", "half"):
+            present += 1 if st == "present" else 0
+            if r.get("late"):
+                if "late" in waive:
+                    concessions.append({"day": r["day"], "what": "Late mark forgiven", "note": note})
+                else:
+                    lates += 1; line["late"] = True
+            if r.get("no_out"):
+                no_out.append(r["day"])
+            if r.get("ot_min", 0) >= 60 and r.get("okOT"):
+                h = r["ot_min"] // 60                   # whole hours only
+                ot_hours += h; line["ot_h"] = h
+            out = _hhmm(r.get("out"))
+            if out and st == "present":
+                om = int(out[:2]) * 60 + int(out[3:])
+                if om < end_min:
+                    mins = end_min - om
+                    if r.get("okEarly"):
+                        concessions.append({"day": r["day"], "what":
+                            "Left %d min early \u2014 approved" % mins, "note": note})
+                    else:
+                        early_min += mins; line["early"] = mins
+            if st == "half":
+                if r.get("halfPaid"):
+                    concessions.append({"day": r["day"], "what": "Half day \u2014 paid", "note": note})
+                else:
+                    halves_unpaid += 0.5
+        elif st == "leave":
+            if "leave" in waive:
+                concessions.append({"day": r["day"], "what": "Leave forgiven", "note": note})
+            else:
+                leaves += 1
+        elif st == "absent":
+            if "absent" in waive:
+                concessions.append({"day": r["day"], "what": "Absence forgiven", "note": note})
+            else:
+                absents += 1
+        elif st == "holiday":
+            holidays += 1
+        elif st == "weekly_off":
+            offs += 1
+        table.append(line)
+
+    late_days = lates / 3.0                                     # exact, as decided
+    ot_amount = ot_hours * per_hour
+    leave_ded = leaves * per_day
+    absent_ded = absents * per_day
+    late_ded = late_days * per_day
+    half_ded = halves_unpaid * per_day
+    early_ded = early_min * per_min
+
+    advances = []
+    adv_total = 0.0
+    for a in d.get("advances", {}).values():
+        if a.get("user") != uid:
+            continue
+        due = _instalment_due(d, a, month, final)
+        bal = _balance(d, a)
+        if due or bal > 0:
+            advances.append({"id": a["id"], "purpose": a.get("purpose", ""),
+                             "amount": a["amount"], "recovered": round(a["amount"] - bal, 2),
+                             "balance": bal, "this_month": due})
+        adv_total += due
+    bonus = sum(float(b["amount"]) for b in d.get("bonuses", {}).values()
+                if b.get("user") == uid and b.get("month") == month)
+
+    net = (basic_due + ot_amount + bonus
+           - leave_ded - late_ded - absent_ded - half_ded - early_ded - adv_total)
+    net_r = int(round(net))                          # only the final figure is rounded
+    return {"ok": True, "slip": {
+        "id": uid + "|" + month, "user": uid, "name": user.get("name"),
+        "designation": person.get("designation") or ROLE_NAMES.get(user.get("role"), ""),
+        "month": month, "final_month": final,
+        "period": [start, end], "days_employed": days_employed, "full_month": full_month,
+        "basic": basic, "basic_due": _money(basic_due),
+        "per_day": _money(per_day), "per_hour": _money(per_hour),
+        "present": present, "leave_days": leaves, "absent_days": absents,
+        "half_days_unpaid": halves_unpaid, "holidays": holidays, "weekly_offs": offs,
+        "late_marks": lates, "late_days": _money(late_days),
+        "ot_hours": ot_hours, "ot_amount": _money(ot_amount),
+        "early_minutes": early_min, "early_deduction": _money(early_ded),
+        "leave_deduction": _money(leave_ded), "absent_deduction": _money(absent_ded),
+        "late_deduction": _money(late_ded), "half_deduction": _money(half_ded),
+        "advance_deduction": _money(adv_total), "advances": advances,
+        "bonus": _money(bonus), "net": net_r, "owes": -net_r if net_r < 0 else 0,
+        "concessions": concessions, "no_out": no_out, "table": table,
+        "rate_from": rate.get("from"),
+    }}
+
+
+ROLE_NAMES = {"admin": "Admin", "supervisor": "Supervisor", "store": "Store Manager",
+              "tech": "Technician", "helper": "Helper"}
+
+
+# ---------- what the admin records ----------
+
+def _need_admin(u):
+    return u.get("role") == "admin"
+
+
+def _new_id():
+    return secrets.token_hex(6)
+
+
+def pay_route(cid, req, u):
+    act = req.get("action")
+    stamp = pk_now().isoformat(timespec="seconds")
+
+    # a person's own finalised slips: the only salary anyone else ever gets
+    if act == "slips.mine":
+        d = hr_load(cid)
+        mine = [s for s in d.get("slips", {}).values()
+                if s.get("user") == u["id"] and s.get("status") == "final"]
+        mine.sort(key=lambda s: s["month"], reverse=True)
+        return {"ok": True, "slips": mine}
+
+    if not _need_admin(u):
+        return {"ok": False, "msg": "Salary is for the admin."}
+
+    def need(*keys):
+        for k in keys:
+            if req.get(k) in (None, ""):
+                return {"ok": False, "msg": "Missing: " + k}
+        return None
+
+    with _hr_lock:
+        d = hr_load(cid)
+        for k in ("rates", "people", "advances", "recoveries", "bonuses", "slips"):
+            d.setdefault(k, {})
+
+        if act == "overview":
+            users = [x for x in store_load(cid).get("users", {}).values()
+                     if isinstance(x, dict) and x.get("active", True)]
+            out = []
+            for x in users:
+                rs = sorted([r for r in d["rates"].values() if r.get("user") == x["id"]],
+                            key=lambda r: (r.get("from", ""), r.get("at", "")))
+                advs = [dict(a, balance=_balance(d, a)) for a in d["advances"].values()
+                        if a.get("user") == x["id"]]
+                out.append({"user": x["id"], "name": x.get("name"), "role": x.get("role"),
+                            "person": d["people"].get(x["id"], {}), "rates": rs,
+                            "advances": advs,
+                            "bonuses": [b for b in d["bonuses"].values() if b.get("user") == x["id"]]})
+            return {"ok": True, "people": out}
+
+        if act == "person":            # joining date, leaving date, designation
+            e = need("user")
+            if e: return e
+            p = d["people"].setdefault(req["user"], {})
+            for k in ("joined", "left", "designation"):
+                if k in req:
+                    p[k] = str(req.get(k) or "").strip()
+            hr_save(cid, d)
+            return {"ok": True}
+
+        if act == "rate":              # a raise is a new row; nothing is overwritten
+            e = need("user", "basic", "from")
+            if e: return e
+            rid = _new_id()
+            d["rates"][rid] = {"id": rid, "user": req["user"], "basic": float(req["basic"]),
+                               "from": str(req["from"])[:10], "note": str(req.get("note") or ""),
+                               "by": u.get("name"), "at": stamp}
+            hr_save(cid, d)
+            return {"ok": True, "id": rid}
+
+        if act == "advance":
+            e = need("user", "amount", "given", "instalments", "first")
+            if e: return e
+            aid = _new_id()
+            d["advances"][aid] = {"id": aid, "user": req["user"], "amount": float(req["amount"]),
+                                  "given": str(req["given"])[:10],
+                                  "purpose": str(req.get("purpose") or ""),
+                                  "instalments": int(req["instalments"]),
+                                  "first": str(req["first"])[:7], "status": "active",
+                                  "by": u.get("name"), "at": stamp}
+            hr_save(cid, d)
+            return {"ok": True, "id": aid}
+
+        if act == "bonus":
+            e = need("user", "amount", "month")
+            if e: return e
+            bid = _new_id()
+            d["bonuses"][bid] = {"id": bid, "user": req["user"], "amount": float(req["amount"]),
+                                 "month": str(req["month"])[:7],
+                                 "reason": str(req.get("reason") or ""),
+                                 "by": u.get("name"), "at": stamp}
+            hr_save(cid, d)
+            return {"ok": True, "id": bid}
+
+        if act == "approve":           # a day: overtime, early, half day, forgiveness
+            e = need("user", "day", "note")
+            if e: return e
+            rid = req["user"] + "|" + str(req["day"])[:10]
+            rec = d["attendance"].get(rid) or {"id": rid, "user": req["user"],
+                                               "day": str(req["day"])[:10], "status": "absent"}
+            before = {k: rec.get(k) for k in ("okOT", "okEarly", "halfPaid", "waive", "status")}
+            for k in ("okOT", "okEarly", "halfPaid"):
+                if k in req:
+                    rec[k] = bool(req[k])
+            if "half" in req:
+                if req["half"]:
+                    rec["status"] = "half"
+                elif rec.get("status") == "half":
+                    rec["status"] = "present"
+            if "waive" in req:
+                rec["waive"] = [w for w in (req.get("waive") or [])
+                                if w in ("late", "absent", "leave")]
+            rec["waiveNote"] = str(req["note"])
+            rec.setdefault("history", []).append({"by": u.get("name"), "at": stamp,
+                                                  "note": str(req["note"]), "before": before})
+            d["attendance"][rid] = rec
+            hr_save(cid, d)
+            return {"ok": True}
+
+        if act == "slips.make":        # drafts only: nothing is recovered here
+            e = need("month")
+            if e: return e
+            month = str(req["month"])[:7]
+            made, problems = [], []
+            who = req.get("users") or [x["id"] for x in store_load(cid).get("users", {}).values()
+                                       if isinstance(x, dict) and x.get("active", True)]
+            hr_save(cid, d)
+    # outside the lock: the calculation reads the store itself
+    if act == "slips.make":
+        for uid in who:
+            with _hr_lock:
+                dd = hr_load(cid)
+                have = dd.get("slips", {}).get(uid + "|" + month)
+            if have and have.get("status") == "final":
+                continue                  # a finalised slip is never remade
+            r = pay_calculate(cid, uid, month)
+            if not r["ok"]:
+                problems.append(r["msg"]); continue
+            s = r["slip"]; s["status"] = "draft"; s["made"] = stamp; s["madeBy"] = u.get("name")
+            with _hr_lock:
+                dd = hr_load(cid); dd.setdefault("slips", {})[s["id"]] = s; hr_save(cid, dd)
+            made.append(s["id"])
+        return {"ok": True, "made": made, "problems": problems}
+
+    with _hr_lock:
+        d = hr_load(cid)
+        d.setdefault("slips", {}); d.setdefault("recoveries", {}); d.setdefault("advances", {})
+        if act == "slips.month":
+            month = str(req.get("month") or "")[:7]
+            return {"ok": True, "slips": [s for s in d["slips"].values() if s.get("month") == month]}
+
+        if act == "slips.final":
+            s = d["slips"].get(str(req.get("id") or ""))
+            if not s:
+                return {"ok": False, "msg": "No such slip."}
+            if s.get("status") == "final":
+                return {"ok": True, "already": True}
+            if s.get("no_out"):
+                return {"ok": False, "msg": "Fix the days without a check-out first: " +
+                        ", ".join(s["no_out"])}
+            # recoveries are written now, and only now
+            for a in s.get("advances", []):
+                if a.get("this_month", 0) > 0:
+                    rid = _new_id()
+                    d["recoveries"][rid] = {"id": rid, "advance": a["id"], "slip": s["id"],
+                                            "amount": a["this_month"], "on": stamp}
+            for a in d["advances"].values():
+                if a.get("user") == s["user"] and _balance(d, a) <= 0:
+                    a["status"] = "recovered"
+            s["status"] = "final"; s["finalBy"] = u.get("name"); s["finalAt"] = stamp
+            hr_save(cid, d)
+            return {"ok": True}
+
+    return {"ok": False, "msg": "Unknown action"}
+
+
+# ================================================================
 #  WEB PUSH
 #  ----------------------------------------------------------------
 #  For iPhones, and for any phone using the app in a browser rather
@@ -2169,7 +2902,7 @@ def push_for(cid, user):
 
 import base64 as _b64
 
-ICONS = {'192': 'iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAC5UlEQVR42u3cD03DQBjG4d1lBlCweWAJJvAwEjSgAg0kzAMmSIaHTQEShgagf+7ufR4FXfv9+rXJ0s0GAAAAAAAAAGAYpaeD3R3PN5esD9fToQjAwNN4EMXQkxxDMfgkh1AMPskhFINPcgjF4JMcQjX8tGbJOamGn+QIisEn+ZGoGn6St0E1/CRHUA0/yRFUw09yBNUpJVltuU6Ye86q4Sc5gmr4SY7AOwDeAdz9Sd0CNgA2gLs/qVvABsAGcPcndQvYANgA7v6kbgEbABsABODxh8DHIBsAGwAEAALw/E/We4ANQLTtqD/s8n4fcQH3T1+m2DtA5vCn/VYBGAi/WQAGwW8XAAgABAACAAGAAEAAIAAQAAgABAACAAGAAEAACMApQAAgABBA15K/kODrEAKIHQTDL4DYgTD8/7M1GNgAIAAQAAgABAACAAGAAEAAIAAQAAgABAAdG/bfoK/Pe1d3Yi9vFxvA8Oca8bxWF4nk81tdHJLPs5dgogkAAYAAQAAgABAACAAEAAIAAYAAQAAgABAACAAEAAIAAaxlxK8WOM8CEIHzKwAROK9z2LpYeAcAAYAAQAAgABAACAAEAAIAAYAAQAAgAOjYsP8GfXy4a+6YPj6/TZwNkDn8LR+XAAy/4xOA4XecAgABgABAACAAEAAIAAQAAgABgABAACAAEAAIAAQAAgABgAAW0MtXF3wdQgCxw2X4BRA7ZIa/PcN+GMuw4SUYpgzgejoUp4zW/WZObQBsABAACMB7ADnP/zYANoBTgAA8BhH4+GMDYAMsWRu0dPe3AbAB1qgOWrj72wDYAGvWB2vPnw2ADWALkHj3n3QDiIDehn/yRyAR0NPwewfAO0DLdcLc81V7OEiYa65qTweL4e8mABHQwxwtNqC74/nmUtLaDbSO9GMw/M0GIAJanJPVBtIjES3cIFe/IwuBNZ8MmnkkEYLBjw5ACAZfAGIw9AIQhIEHAAAAAAAAgL/6Ae13+f9Yg1NUAAAAAElFTkSuQmCC', '512': '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', '512m': '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', '180': 'iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYAAAA9zQYyAAACuElEQVR42u3cAU3DUBSG0fZlBlAwPLAEE3gYCRpQgQYS5gETJMPDpgAJQwILWdvb/52joOv7uLkl64YBAAAAAAAA6M+4hovc7o8XR1XD+bAbBS1ekfcUtIjFHRG0kIUdEbSQhR0RtJCFPbUmZpLOv4mZpKhHIZO0gjQxkzStm5hJirqJmaSom5hJirqJmaSom1tJklbprwtTevGgxUylqJuYSYraDo0d2nSm6pQ2oTGhTWeqTmkTmr4ntOlM5SltQmOHhoigrRtUXztMaKwcIGgQNEwUtAdC1vBguEn60KePh8jDvH/+VnRvK0dqzOmfTdCdHrioOwm6p4MWdUcrBwgaQYOgQdAgaAQNggZBg6BB0AgaBA2CBkGDoBE0CHpBPb1A6mXZTiZ0Dwct5s5WjuQDF/P1Ng4eExoEDYIGQSNoEDQIGgQNgkbQIGgQNEwh6stJby/3TvSfXt9PJrSYDQNBOwz3UdBidj89FNIhQSNoEDQIGgSNoEHQIGgQNAgaQYOgQdAgaBA0gl6TlHfh3E9Bi9p9zF05RO3+DUPYzxiIGg+FCBoEDYIGQSNoEDQIGgQNgkbQIGioI+rLSU+PdyWu4/PrR1kmdEbM1a5F0GIWtaCFI2pBg6BB0AgaBA2CBkGDoBE0CBoEDYIGQSNoEDQIGgQNKUFXfiHVy7KCjglHzIKOCUjMy4n6XQ4hcfWEPh92o9vFUq7tz385sEODoEHQMGHQHgyp/EBoQmPlgKigrR1UXTdMaExoU5qq09mExoQ2pak6nU1oTGhTmqrT+SYTWtRUiflmK4eoqdKRHRo7tClNxel88wktapbuplW+OMRcYocWNUt10tZ0sYj5L7NEt90fL46QOQZdS/gQiHnWoEXNXOe/SGRWECFHBS1sIUcGLWwhRwYtbhHHBi1y8QIAAAAAADCDX5xn8e1QoUjCAAAAAElFTkSuQmCC'}
+ICONS = {'192': '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', '512': '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', '512m': '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', '180': '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'}
 
 APP_NAME = "Paragon"
 
@@ -2316,7 +3049,7 @@ self.addEventListener('notificationclick', function(e){
 #  WHAT A REQUEST CAN ASK FOR
 # ================================================================
 
-BUILD = "2026-09-20 sharing + counters + console + QR complaints + installable app + every kind shared + phone notes + iPhone push + admin join"
+BUILD = "2026-09-20 sharing + counters + console + QR complaints + installable app + every kind shared + phone notes + iPhone push + admin join + attendance + salary"
 
 
 def handle(req):
@@ -2450,6 +3183,24 @@ class Handler(BaseHTTPRequestHandler):
         # The client's form is the one thing here with no shared secret,
         # because a client who has to be given one will phone instead. It
         # can only look up a machine and report a fault on it.
+        if path == "/hr":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > 65536:
+                    return self._send({"ok": False, "msg": "Too large"}, 413)
+                raw = self.rfile.read(length).decode("utf-8", "replace")
+                req = json.loads(raw) if raw else {}
+            except Exception:
+                return self._send({"ok": False, "msg": "Could not read that."}, 400)
+            # a connected phone, and then a signed-in person on it
+            if not hmac.compare_digest(str(req.get("key") or ""), SHARED_SECRET):
+                return self._send({"ok": False, "msg": "Shared secret does not match"}, 403)
+            try:
+                return self._send(hr_route("main", req, self.client_address[0]))
+            except Exception as e:
+                note("HR ERROR", repr(e))
+                return self._send({"ok": False, "msg": "Something went wrong here."}, 500)
+
         if path == "/join":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -2511,6 +3262,7 @@ if __name__ == "__main__":
     note("Console at  http://localhost:%d/console" % PORT)
     note("Client form at  /c/<serial>  \u2014 no login, by design")
     try:
+        threading.Thread(target=hr_watch, daemon=True).start()
         ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
     except KeyboardInterrupt:
         note("stopped")

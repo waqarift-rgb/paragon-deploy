@@ -214,11 +214,14 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
              onkeydown="if(event.key==='Enter')doSignin()"></div>
     <div id="gErr" style="color:var(--red);font-size:13px;margin-bottom:12px"></div>
     <button class="btn" onclick="doSignin()">Sign in</button>
-    <div class="help" style="margin-top:14px">First phone in the business:
-      <code>admin</code> / <code>admin123</code>, and you will be asked to change
-      it.</div>
-    <button class="btn ghost" style="margin-top:12px" onclick="joinServer()">
-      Joining a team? Connect to the server</button>
+    <!-- A phone not yet connected is shown the way to connect, not the
+         starting login: that belongs in the installation guide, for the one
+         person setting up the very first phone. -->
+    <div id="gJoin">
+      <div class="help" style="margin:16px 0 8px">New phone? An admin connects it
+        first.</div>
+      <button class="btn ghost" onclick="joinServer()">Connect to the server</button>
+    </div>
   </div>
 </div>
 
@@ -237,6 +240,7 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
   <div class="page on" id="pg-home">
     <h2>Hello, <span id="homeWho"></span></h2>
     <div class="sub">Here is where things stand</div>
+    <div id="homeAtt"></div>
     <div class="tiles" id="homeTiles"></div>
     <div id="homeList"></div>
     <div id="homeParts"></div>
@@ -514,28 +518,38 @@ function nameOf(list, id, field){
 var ME = null;
 
 var ROLES = {
-  admin:      { label:'Admin',         rank:4 },
-  supervisor: { label:'Supervisor',    rank:3 },
-  store:      { label:'Store Manager', rank:2 },
-  tech:       { label:'Technician',    rank:1 }
+  admin:      { label:'Admin',         rank:5 },
+  supervisor: { label:'Supervisor',    rank:4 },
+  store:      { label:'Store Manager', rank:3 },
+  tech:       { label:'Technician',    rank:2 },
+  helper:     { label:'Helper',        rank:1 }
+};
+
+/* Who may do what, written as a list of the roles that may \u2014 never as
+   "everyone except". The old form said "not a technician", and the day a
+   Helper was added it would quietly have handed the Helper every complaint,
+   the store and the reports. A new role now starts with nothing. */
+var PERMS = {
+  'users':            ['admin'],
+  'settings':         ['admin'],
+  'stock.edit':       ['admin','store'],
+  'stock.see':        ['admin','supervisor','store'],
+  'complaint.add':    ['admin','supervisor','store'],
+  'complaint.assign': ['admin','supervisor','store'],
+  'complaint.all':    ['admin','supervisor','store'],
+  'part.approve':     ['admin','supervisor','store'],
+  'part.issue':       ['admin','store'],
+  'reports':          ['admin','supervisor','store'],
+  'jobs':             ['admin','supervisor','store','tech'],
+  'fleet':            ['admin','supervisor','store'],
+  'quotes':           ['admin','supervisor'],
+  'attendance.all':   ['admin']
 };
 
 function can(what){
   if(!ME) return false;
-  var r = ME.role;
-  switch(what){
-    case 'users':      return r === 'admin';
-    case 'settings':   return r === 'admin';
-    case 'stock.edit': return r === 'admin' || r === 'store';
-    case 'stock.see':  return r !== 'tech';
-    case 'complaint.add':    return r !== 'tech';
-    case 'complaint.assign': return r !== 'tech';
-    case 'complaint.all':    return r !== 'tech';
-    case 'part.approve':     return r === 'admin' || r === 'store' || r === 'supervisor';
-    case 'part.issue':       return r === 'admin' || r === 'store';
-    case 'reports':    return r !== 'tech';
-  }
-  return false;
+  var list = PERMS[what];
+  return !!list && list.indexOf(ME.role) > -1;
 }
 
 /* what this person is allowed to see */
@@ -592,6 +606,9 @@ function doSignin(){
   /* stay signed in, the way an app on a phone does. The phone's own lock
      is what keeps it private; Sign out ends it. */
   DB.session = rec.id;
+  /* the same password signs this person in to attendance on the server,
+     while it is to hand; only the session is kept */
+  try { if(typeof hrLogin === 'function') hrLogin(rec.email, p, true); } catch(e){}
   $('gPass').value = '';
   $('gate').classList.add('hide');
   $('app').style.display = 'block';
@@ -603,6 +620,8 @@ function doSignin(){
 
 function signOut(){
   ME = null;
+  DB.hr = null; DB.attToday = null;
+  try { gateJoinButton(); } catch(e){}
   DB.session = '';
   save();
   /* a phone nobody is signed in on should not ring with somebody's jobs */
@@ -1546,6 +1565,10 @@ var PAGE = 'home';
 var FILTER = 'open';
 
 function go(p){
+  /* a page the role cannot use sends them home instead */
+  var allowed = { jobs:'jobs', store:'stock.see', fleet:'fleet', quotes:'quotes' };
+  if(ME && allowed[p] && !can(allowed[p])) p = 'home';
+  if(ME && p === 'tasks' && !canTasks() && ME.role !== 'helper') p = 'home';
   PAGE = p;
   Array.prototype.forEach.call(document.querySelectorAll('.page'), function(el){
     el.classList.toggle('on', el.id === 'pg-' + p); });
@@ -1573,6 +1596,12 @@ function draw(){
 /* ---------- the bar and tabs ---------- */
 function drawTabs(){
   if(!ME) return;
+  var showTab = { home:true, more:true,
+    jobs: can('jobs'), store: can('stock.see'), fleet: can('fleet'),
+    quotes: can('quotes'), tasks: canTasks() || ME.role === 'helper' };
+  Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function(b){
+    b.style.display = showTab[b.dataset.p] === false ? 'none' : '';
+  });
   var open = myComplaints().filter(function(c){
     return c.status !== 'resolved' && c.status !== 'closed'; }).length;
   /* the badge counts what actually needs a person, by quantity */
@@ -1618,6 +1647,19 @@ function drawHome(){
 
   $('homeWho').textContent = ME.name;
   $('homeRole').textContent = ROLES[ME.role].label;
+  try { drawAttCard(); } catch(e){}
+
+  /* A Helper has no jobs: his home is his attendance and his own work. */
+  if(ME.role === 'helper'){
+    var work = (DB.tasks || []).filter(function(t){
+      return t.to === ME.id && t.state !== 'done' && t.state !== 'turned'; });
+    $('homeTiles').innerHTML = '';
+    $('homeList').innerHTML = '<label style="margin:6px 0 9px">Your work</label>' +
+      (work.length ? work.map(taskCard).join('')
+        : '<div class="empty"><span class="ic">\u2713</span>Nothing waiting for you.</div>');
+    $('homeParts').innerHTML = '';
+    return;
+  }
 
   $('homeTiles').innerHTML =
     tile('a', open.length, can('complaint.all') ? 'Pending' : 'Waiting for me', "jump('pending')")+
@@ -2994,6 +3036,14 @@ var QT_VIEW = 'quotes';
 function qtView(v){ QT_VIEW = v; drawQuotes(); }
 
 function drawQuotes(){
+  if(!can('quotes')){
+    $('qtList').innerHTML = '<div class="empty"><span class="ic">\u{1F512}</span>'+
+      'Quotations, bills and contracts are for the office.</div>';
+    if($('qtStrip')) $('qtStrip').innerHTML = '';
+    if($('kList')) $('kList').innerHTML = '';
+    if($('qtAdd')) $('qtAdd').classList.add('hide');
+    return;
+  }
   var strip = $('qtStrip');
   if(strip) strip.innerHTML = [
     ['quotes','Quotations',(DB.quotes||[]).length],
@@ -3482,6 +3532,14 @@ function taskDue(t){
 }
 
 function drawTasks(){
+  if(ME && ME.role === 'helper'){
+    var mineH = (DB.tasks || []).filter(function(t){
+      return t.to === ME.id && t.state !== 'done' && t.state !== 'turned'; });
+    $('tkBody').innerHTML = '<label style="margin-bottom:9px">Your work</label>' +
+      (mineH.length ? mineH.map(taskCard).join('')
+        : '<div class="empty"><span class="ic">\u2713</span>Nothing waiting for you.</div>');
+    return;
+  }
   if(!canTasks()){
     $('tkBody').innerHTML = '<div class="empty"><span class="ic">\u{1F512}</span>'+
       'Tasks are for the people running the business.</div>';
@@ -3577,7 +3635,8 @@ function taskCard(t){
 function newTask(kind){
   if(!canTasks()) return toast('Tasks are for the people running the business','bad');
   var meeting = kind === 'meeting';
-  var people = owners();
+  var people = owners().concat(meeting ? [] : DB.users.filter(function(u){
+    return u.active && u.role === 'helper'; }));
 
   modal(meeting ? 'New meeting' : 'New task',
     '<div class="field"><label>'+(meeting?'What is it about':'What has to be done')+
@@ -8054,6 +8113,765 @@ function pushLinks(){
 }
 
 /* ============================================================
+   ATTENDANCE
+   ------------------------------------------------------------
+   The phone presses the button and shows what the server says.
+   Whether a check-in is late, how long the overtime ran, which
+   day is a holiday or a Sunday or an absence \u2014 all of that is
+   worked out on the server, from the times, so no phone can
+   decide it and no two phones can disagree.
+
+   Nobody's attendance but a person's own ever comes to their
+   phone. An admin's phone asks for everyone's, and the server
+   checks that it is an admin before it answers.
+   ============================================================ */
+
+function hrUrl(){ return String(DB.share.url || '').replace(/\/+$/, '') + '/hr'; }
+
+function hrCall(body){
+  return fetch(hrUrl(), { method:'POST', headers:{'Content-Type':'text/plain'},
+    body: JSON.stringify(Object.assign({ key: DB.share.key,
+      token: (DB.hr && DB.hr.user === (ME && ME.id)) ? DB.hr.token : '' }, body)) })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if(d && d.signin){ DB.hr = null; save(); }
+    return d;
+  });
+}
+
+/* Signing in on the phone also signs in to attendance, with the same
+   password, while it is to hand. It is never kept \u2014 only the session. */
+function hrLogin(user, pass, quiet){
+  if(!sharingOn()) return Promise.resolve(false);
+  return fetch(hrUrl(), { method:'POST', headers:{'Content-Type':'text/plain'},
+    body: JSON.stringify({ key: DB.share.key, action:'login', user:user, pass:pass }) })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if(d && d.ok){ DB.hr = { token:d.token, user:d.user }; save(); attRefresh(); return true; }
+    if(!quiet) toast(d && d.msg || 'Could not sign in to attendance', 'bad');
+    return false;
+  }).catch(function(){ return false; });
+}
+
+function hrReady(){ return sharingOn() && DB.hr && ME && DB.hr.user === ME.id; }
+
+function hrLink(){
+  modal('Attendance',
+    '<div class="note i">To mark attendance on this phone, confirm it is you '+
+    'once. Your password is checked by the server and is not kept on the phone.</div>'+
+    '<div class="field"><label>Your password</label>'+
+      '<input id="hlPass" type="password" autocomplete="current-password"></div>',
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'},
+     {t:'Confirm',cls:'',f:'doHrLink()'}]);
+}
+
+function doHrLink(){
+  var p = $('hlPass').value;
+  if(!p) return;
+  hrLogin(ME.email, p).then(function(ok){
+    if(ok){ closeModal(); toast('Attendance is ready on this phone','good'); draw(); }
+  });
+}
+
+/* ---------- today, on the home screen ---------- */
+
+function hhmm(iso){ return String(iso || '').slice(11, 16); }
+
+function attRefresh(){
+  if(!hrReady()) return;
+  var month = today().slice(0, 7);
+  hrCall({ action:'month', month:month }).then(function(d){
+    if(!d || !d.ok) return;
+    var me = (d.people || []).filter(function(p){ return p.user === ME.id; })[0];
+    var row = me && me.rows.filter(function(r){ return r.day === today(); })[0];
+    DB.attToday = row ? Object.assign({ day: today() }, row) : { day: today() };
+    save();
+    if(PAGE === 'home') drawAttCard();
+  }).catch(function(){});
+}
+
+function drawAttCard(){
+  var el = $('homeAtt');
+  if(!el || !ME) return;
+  if(!sharingOn()){ el.innerHTML = ''; return; }
+  if(!hrReady()){
+    el.innerHTML = '<div class="card" style="padding:12px 14px">'+
+      '<div class="row"><div class="grow"><div class="ttl">Attendance</div>'+
+      '<div class="meta">Confirm it is you once, to start</div></div>'+
+      '<button class="btn sm" onclick="hrLink()">Start</button></div></div>';
+    return;
+  }
+  var t = (DB.attToday && DB.attToday.day === today()) ? DB.attToday : {};
+  var queued = (DB.attQueue || []).length;
+  var line, btn;
+  if(!t.in){
+    line = 'Not checked in yet';
+    btn = '<button class="btn green" onclick="attPress(\'in\')">Check In</button>';
+  } else if(!t.out){
+    line = 'In at <b>' + hhmm(t.in) + '</b> \u00b7 ' +
+      (t.late ? '<span style="color:var(--red)">late</span>'
+              : '<span style="color:var(--green)">on time</span>');
+    btn = '<button class="btn" onclick="attPress(\'out\')">Check Out</button>';
+  } else {
+    line = 'In <b>' + hhmm(t.in) + '</b> \u00b7 Out <b>' + hhmm(t.out) + '</b>' +
+      (t.late ? ' \u00b7 <span style="color:var(--red)">late</span>' : '') +
+      (t.ot_min ? ' \u00b7 ' + t.ot_min + ' min after 6' : '');
+    btn = '';
+  }
+  el.innerHTML = '<div class="card" style="padding:12px 14px">'+
+    '<div class="row" style="align-items:center"><div class="grow">'+
+      '<div class="ttl">Attendance \u00b7 ' + esc(dmy(today())) + '</div>'+
+      '<div class="meta">' + line + '</div>'+
+      (queued ? '<div class="meta" style="color:var(--amber)">Saved on this phone, '+
+        'will be sent when there is signal</div>' : '')+
+    '</div>' + btn + '</div></div>';
+}
+
+/* The press. The location is taken quietly; the time the server keeps is its
+   own, so a phone's clock cannot move it. With no signal the press is kept
+   and sent later \u2014 and the server marks it so, for the admin to see. */
+function attPress(kind){
+  var stamp = new Date();
+  var send = function(place){
+    var body = { action:kind, time: isoLocal(stamp), place: place || '' };
+    hrCall(body).then(function(d){
+      if(d && d.ok){
+        DB.attToday = Object.assign({ day: (d.rec && d.rec.day) || today() }, d.rec || {});
+        save(); drawAttCard();
+        toast(d.already ? 'You checked in at ' + hhmm(d.rec.in)
+          : kind === 'in' ? 'Checked in ' + hhmm(d.rec.in) + (d.rec.late ? ' \u2014 late' : '')
+          : 'Checked out ' + hhmm(d.rec.out), d.rec && d.rec.late && kind === 'in' ? 'bad' : 'good');
+      } else if(d && d.signin){
+        drawAttCard(); toast('Confirm it is you once more, then press again','bad');
+      } else {
+        toast((d && d.msg) || 'Not saved', 'bad');
+      }
+    }).catch(function(){
+      DB.attQueue = DB.attQueue || [];
+      DB.attQueue.push(body); save(); drawAttCard();
+      toast('No signal \u2014 saved on this phone, it will be sent','good');
+    });
+  };
+  if(navigator.geolocation){
+    var done = false;
+    var go = function(p){ if(done) return; done = true; send(p); };
+    navigator.geolocation.getCurrentPosition(function(pos){
+      go(pos.coords.latitude.toFixed(5) + ',' + pos.coords.longitude.toFixed(5));
+    }, function(){ go(''); }, { timeout:6000, maximumAge:60000 });
+    setTimeout(function(){ go(''); }, 7000);
+  } else send('');
+}
+
+function isoLocal(d){
+  var p = function(n){ return String(n).padStart(2,'0'); };
+  var off = -d.getTimezoneOffset(), sg = off >= 0 ? '+' : '-';
+  off = Math.abs(off);
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+
+    p(d.getMinutes())+':'+p(d.getSeconds())+sg+p(Math.floor(off/60))+':'+p(off%60);
+}
+
+/* presses made without signal go when it comes back */
+function attFlush(){
+  if(!hrReady() || !(DB.attQueue || []).length) return;
+  var next = DB.attQueue[0];
+  hrCall(next).then(function(d){
+    if(d && (d.ok || d.msg)){ DB.attQueue.shift(); save(); drawAttCard();
+      if(DB.attQueue.length) attFlush(); else attRefresh(); }
+  }).catch(function(){});
+}
+
+/* ---------- the month ---------- */
+
+var ATT_STATUS = {
+  present:   { label:'Present',   pill:'p-resolved' },
+  absent:    { label:'Absent',    pill:'p-high' },
+  leave:     { label:'Leave',     pill:'p-parts' },
+  holiday:   { label:'Holiday',   pill:'p-started' },
+  weekly_off:{ label:'Sunday',    pill:'p-closed' },
+  half:      { label:'Half day',  pill:'p-parts' }
+};
+
+var _attMonth = null, _attData = null, _attWho = null;
+
+function attendanceBox(month){
+  if(!sharingOn()) return toast('Attendance works once this phone is connected to the server','bad');
+  if(!hrReady()) return hrLink();
+  _attMonth = month || _attMonth || today().slice(0, 7);
+  modal('Attendance', '<div class="help">Loading\u2026</div>',
+        [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+  hrCall({ action:'month', month:_attMonth }).then(function(d){
+    if(!d || !d.ok) return $('mbody').innerHTML = '<div class="note d">' +
+      esc((d && d.msg) || 'Could not load') + '</div>';
+    _attData = d;
+    if(can('attendance.all') && !_attWho) return attList();
+    attPerson(_attWho || ME.id);
+  }).catch(function(e){
+    $('mbody').innerHTML = '<div class="note d">No signal. Attendance is kept on the '+
+      'server and needs it to show the month.</div>';
+  });
+}
+
+function shiftMonth(step){
+  var y = +_attMonth.slice(0,4), m = +_attMonth.slice(5,7) + step;
+  if(m < 1){ m = 12; y--; } if(m > 12){ m = 1; y++; }
+  attendanceBox(y + '-' + String(m).padStart(2,'0'));
+}
+
+function monthBar(){
+  var names = ['January','February','March','April','May','June','July','August',
+               'September','October','November','December'];
+  return '<div class="row" style="align-items:center;margin-bottom:10px">'+
+    '<button class="btn ghost sm" onclick="shiftMonth(-1)">\u2039</button>'+
+    '<div class="grow" style="text-align:center;font-weight:600">'+
+      names[+_attMonth.slice(5,7)-1] + ' ' + _attMonth.slice(0,4) + '</div>'+
+    '<button class="btn ghost sm" onclick="shiftMonth(1)">\u203a</button></div>';
+}
+
+function sumLine(s){
+  return s.present + ' present \u00b7 ' + s.late + ' late \u00b7 ' + s.absent + ' absent \u00b7 ' +
+    s.leave + ' leave \u00b7 ' + s.holiday + ' holiday' +
+    (s.ot_min ? ' \u00b7 ' + Math.floor(s.ot_min/60) + 'h ' + (s.ot_min%60) + 'm after 6' : '') +
+    (s.no_out ? ' \u00b7 <span style="color:var(--amber)">' + s.no_out + ' without check-out</span>' : '');
+}
+
+/* the admin's list: everyone, this month */
+function attList(){
+  _attWho = null;
+  var d = _attData;
+  $('mtitle').textContent = 'Attendance \u00b7 everyone';
+  $('mbody').innerHTML = monthBar() +
+    ((d.holidays || []).length ? '<div class="help" style="margin-bottom:8px">Holidays: ' +
+      d.holidays.map(function(h){ return esc(dmy(h[0])) + ' ' + esc(h[1]); }).join(', ') +
+      '</div>' : '') +
+    d.people.map(function(p){
+      var s = p.sums;
+      return '<div class="card tap" style="padding:10px 12px;margin-bottom:7px" '+
+        'onclick="attPerson(\'' + p.user + '\')"><div class="ttl">' + esc(p.name) + '</div>'+
+        '<div class="meta">' + sumLine(s) + '</div></div>';
+    }).join('');
+  $('mfoot').innerHTML = '<button class="btn ghost" onclick="closeModal()">Close</button>'+
+    '<button class="btn ghost" onclick="holidayBox()">Holidays</button>';
+}
+
+/* one person's month, day by day \u2014 every figure traceable to its row */
+function attPerson(uid){
+  _attWho = uid === ME.id && !can('attendance.all') ? null : uid;
+  var p = (_attData.people || []).filter(function(x){ return x.user === uid; })[0];
+  if(!p) return;
+  var admin = can('attendance.all');
+  var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  $('mtitle').textContent = p.name;
+  $('mbody').innerHTML = monthBar() +
+    '<div class="note i" style="font-size:13px">' + sumLine(p.sums) + '</div>' +
+    '<div style="overflow-x:auto"><table style="width:100%;font-size:12.5px;border-collapse:collapse">'+
+    '<tr style="color:var(--ink-3);text-align:left"><th style="padding:5px 4px">Day</th>'+
+    '<th>In</th><th>Out</th><th></th><th></th></tr>' +
+    p.rows.slice().reverse().map(function(r){
+      var st = ATT_STATUS[r.status] || { label:r.status, pill:'' };
+      var dt = new Date(r.day + 'T12:00:00');
+      return '<tr style="border-top:1px solid var(--line)">'+
+        '<td style="padding:6px 4px;white-space:nowrap">' + esc(r.day.slice(8)) + ' ' +
+          days[dt.getDay()] + '</td>'+
+        '<td>' + (r.in ? hhmm(r.in) + (r.late ? ' <b style="color:var(--red)">L</b>' : '') +
+          (r.inQueued ? ' \u2022' : '') : '') + '</td>'+
+        '<td>' + (r.out ? hhmm(r.out) + (r.ot_min ? ' +' + r.ot_min + 'm' : '')
+                : (r.no_out ? '<span style="color:var(--amber)">none</span>' : '')) + '</td>'+
+        '<td><span class="pill ' + st.pill + '">' + st.label + '</span>' +
+          (r.correctedBy ? ' <span title="corrected" style="color:var(--ink-3)">\u270e</span>' : '') +
+          (r.name ? '<div class="meta">' + esc(r.name) + '</div>' : '') + '</td>'+
+        '<td style="white-space:nowrap">' + (admin ? '<button class="btn ghost sm" onclick="attFix(\'' + uid + '\',\'' +
+          r.day + '\')">Fix</button> <button class="btn ghost sm" onclick="attApprove(\'' + uid + '\',\'' +
+          r.day + '\')">' + ((r.okOT || r.okEarly || r.halfPaid || (r.waive||[]).length) ? '\u2714 ' : '') +
+          'Decide</button>' : '') + '</td></tr>';
+    }).join('') + '</table></div>' +
+    '<div class="help" style="margin-top:8px"><b style="color:var(--red)">L</b> late \u00b7 '+
+    '\u2022 pressed with no signal and sent later \u00b7 \u270e corrected by an admin</div>';
+  $('mfoot').innerHTML = (admin ? '<button class="btn ghost" onclick="attList()">\u2039 Everyone</button>' : '') +
+    '<button class="btn ghost" onclick="closeModal()">Close</button>';
+}
+
+/* an admin correcting a day, with the reason required */
+function attFix(uid, day){
+  var p = (_attData.people || []).filter(function(x){ return x.user === uid; })[0];
+  var r = p && p.rows.filter(function(x){ return x.day === day; })[0] || {};
+  modal('Correct ' + (p ? p.name : '') + ' \u00b7 ' + dmy(day),
+    '<div class="field"><label>What was it</label><select id="afSt" onchange="afShow()">'+
+      '<option value="present"' + (r.status !== 'leave' ? ' selected' : '') + '>Present</option>'+
+      '<option value="leave"' + (r.status === 'leave' ? ' selected' : '') + '>Leave (a day\u2019s deduction)</option>'+
+    '</select></div>'+
+    '<div id="afTimes" class="two">'+
+      '<div class="field"><label>In</label><input id="afIn" type="time" value="' + hhmm(r.in) + '"></div>'+
+      '<div class="field"><label>Out</label><input id="afOut" type="time" value="' + hhmm(r.out) + '"></div>'+
+    '</div>'+
+    '<div class="field"><label>Why (required)</label><input id="afNote" '+
+      'placeholder="Forgot to check out \u00b7 was with me at a client \u00b7 \u2026"></div>'+
+    '<div class="help">What it said before is kept with the correction.</div>',
+    [{t:'Back',cls:'ghost',f:"attendanceBox()"},
+     {t:'Save',cls:'',f:"doAttFix('" + uid + "','" + day + "')"}]);
+  afShow();
+}
+function afShow(){ $('afTimes').style.display = $('afSt').value === 'leave' ? 'none' : ''; }
+
+function doAttFix(uid, day){
+  var note = $('afNote').value.trim();
+  if(!note) return toast('Write why \u2014 every correction needs a reason','bad');
+  var body = { action:'fix', user:uid, day:day, note:note, status:$('afSt').value };
+  if(body.status !== 'leave'){ body.in = $('afIn').value; body.out = $('afOut').value; }
+  hrCall(body).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not saved','bad');
+    toast('Corrected','good');
+    _attWho = uid; attendanceBox();
+  });
+}
+
+/* holidays, chosen by the admin by hand \u2014 never defaulted to a date */
+function holidayBox(){
+  var hol = (_attData && _attData.holidays) || [];
+  modal('Holidays \u00b7 paid',
+    '<div class="note i">Choose each holiday by hand. Religious holidays move every '+
+    'year, so add them once the dates are announced.</div>'+
+    (hol.length ? hol.map(function(h){
+      return '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)">'+
+        '<div class="grow">' + esc(dmy(h[0])) + ' \u00b7 ' + esc(h[1]) + '</div>'+
+        '<button class="btn ghost sm" onclick="holRemove(\'' + h[0] + '\')">Remove</button></div>';
+    }).join('') : '<div class="help">None this month.</div>')+
+    '<div class="sep"></div>'+
+    '<div class="two"><div class="field"><label>Date</label><input id="hdDay" type="date"></div>'+
+    '<div class="field"><label>Name</label><input id="hdName" placeholder="Pakistan Day"></div></div>',
+    [{t:'Back',cls:'ghost',f:'attendanceBox()'},
+     {t:'Add holiday',cls:'',f:'holAdd()'}]);
+}
+
+function holAdd(){
+  var day = $('hdDay').value, name = $('hdName').value.trim();
+  if(!day || !name) return toast('A holiday needs a date and a name','bad');
+  hrCall({ action:'holiday', day:day, name:name }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not saved','bad');
+    _attMonth = day.slice(0, 7);
+    toast('Holiday added','good'); attendanceBox();
+  });
+}
+
+function holRemove(day){
+  hrCall({ action:'holiday', day:day, name:'-', remove:true }).then(function(d){
+    if(d && d.ok){ toast('Removed','good'); attendanceBox(); }
+  });
+}
+
+/* ============================================================
+   SALARY
+   ------------------------------------------------------------
+   Every figure on a slip comes from the server, worked out from
+   the attendance rows to the owner's own rules. The phone shows
+   it, prints it, and asks for the admin's decisions \u2014 nothing
+   here calculates money.
+
+   An admin reaches all of it. Anyone else reaches one thing:
+   their own finalised slips, which the server hands over to that
+   person and nobody else.
+   ============================================================ */
+
+var _pay = null;
+var MONTHS = ['January','February','March','April','May','June','July','August',
+              'September','October','November','December'];
+
+function monthName(m){ return MONTHS[+m.slice(5,7)-1] + ' ' + m.slice(0,4); }
+function rs(n){ return 'Rs. ' + Math.round(+n || 0).toLocaleString('en-PK'); }
+function rs2(n){ return 'Rs. ' + (+n || 0).toLocaleString('en-PK', {maximumFractionDigits:2}); }
+
+/* Rupees in words, the way a slip says them: lakh and crore. */
+function rupeesInWords(n){
+  var neg = n < 0; n = Math.abs(Math.round(n));
+  var ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven',
+    'Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  var tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  function two(x){ return x < 20 ? ones[x] : tens[Math.floor(x/10)] + (x%10 ? ' ' + ones[x%10] : ''); }
+  function three(x){ return (x >= 100 ? ones[Math.floor(x/100)] + ' Hundred' + (x%100 ? ' ' : '') : '') +
+                            (x%100 ? two(x%100) : ''); }
+  if(n === 0) return 'Rupees Zero Only';
+  var parts = [], crore = Math.floor(n/1e7), lakh = Math.floor(n%1e7/1e5),
+      thou = Math.floor(n%1e5/1e3), rest = n%1e3;
+  if(crore) parts.push(three(crore) + ' Crore');
+  if(lakh)  parts.push(two(lakh) + ' Lakh');
+  if(thou)  parts.push(two(thou) + ' Thousand');
+  if(rest)  parts.push(three(rest));
+  return (neg ? 'Minus ' : '') + 'Rupees ' + parts.join(' ') + ' Only';
+}
+
+function payNeedServer(){
+  if(!sharingOn()){ toast('Salary works once this phone is connected to the server','bad'); return false; }
+  if(!hrReady()){ hrLink(); return false; }
+  return true;
+}
+
+/* ---------- the admin's menu ---------- */
+
+function salaryBox(){
+  if(!can('attendance.all')) return mySlips();
+  if(!payNeedServer()) return;
+  modal('Salary',
+    '<div class="note i">Figures are worked out by the server from attendance, '+
+    'to your rules. Slips are drafts until you finalise them; then they are frozen.</div>'+
+    [['\u{1F465}','People and rates','Salary, joining and leaving dates','payPeople()'],
+     ['\u{1F4B5}','Advances','Give, and see what is left','payAdvances()'],
+     ['\u{1F381}','Bonuses','Paid on a month\u2019s slip','payBonusForm()'],
+     ['\u{1F4C4}','Salary slips','Make, check, finalise, print','paySlips()']].map(function(r){
+      return '<div class="card tap" style="padding:11px 13px;margin-bottom:7px" onclick="' + r[3] + '">'+
+        '<div class="row"><span style="font-size:20px;margin-right:10px">' + r[0] + '</span>'+
+        '<div class="grow"><div class="ttl">' + r[1] + '</div><div class="meta">' + r[2] +
+        '</div></div></div></div>';
+    }).join(''),
+    [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+}
+
+function payLoad(then){
+  hrCall({ action:'overview' }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Could not load','bad');
+    _pay = d; then();
+  }).catch(function(){ toast('No signal \u2014 salary is kept on the server','bad'); });
+}
+
+function currentRate(p){ var r = p.rates || []; return r.length ? r[r.length-1] : null; }
+
+function payPeople(){
+  payLoad(function(){
+    modal('People and rates', _pay.people.map(function(p){
+      var r = currentRate(p), per = p.person || {};
+      return '<div class="card" style="padding:10px 12px;margin-bottom:7px">'+
+        '<div class="row"><div class="grow"><div class="ttl">' + esc(p.name) + '</div>'+
+        '<div class="meta">' + (r ? rs(r.basic) + ' from ' + esc(dmy(r.from)) : '<span style="color:var(--red)">No rate yet</span>') +
+          (per.joined ? ' \u00b7 joined ' + esc(dmy(per.joined)) : '') +
+          (per.left ? ' \u00b7 <b>leaves ' + esc(dmy(per.left)) + '</b>' : '') + '</div></div>'+
+        '<button class="btn ghost sm" onclick="payRateForm(\'' + p.user + '\')">Rate</button>'+
+        '<button class="btn ghost sm" style="margin-left:5px" onclick="payDatesForm(\'' + p.user + '\')">Dates</button>'+
+        '</div>' + ((p.rates||[]).length > 1 ? '<div class="help">Earlier: ' + p.rates.slice(0,-1).map(function(x){
+          return rs(x.basic) + ' from ' + esc(dmy(x.from)); }).join(' \u00b7 ') + '</div>' : '') + '</div>';
+    }).join(''), [{t:'Back',cls:'ghost',f:'salaryBox()'}]);
+  });
+}
+
+function personOf(uid){ return _pay.people.filter(function(p){ return p.user === uid; })[0] || {}; }
+
+function payRateForm(uid){
+  var p = personOf(uid);
+  modal('Salary rate \u00b7 ' + p.name,
+    '<div class="note i">A raise is a new rate from a date \u2014 the old one is kept, '+
+    'so an old month is always worked out at the rate it had.</div>'+
+    '<div class="two"><div class="field"><label>Basic salary (Rs.)</label>'+
+      '<input id="prBasic" type="number" inputmode="numeric"></div>'+
+    '<div class="field"><label>Agreed from (required)</label><input id="prFrom" type="date"></div></div>'+
+    '<div class="field"><label>Note</label><input id="prNote" placeholder="Annual raise \u00b7 joining salary \u00b7 \u2026"></div>',
+    [{t:'Back',cls:'ghost',f:'payPeople()'},{t:'Save',cls:'',f:"payRateSave('" + uid + "')"}]);
+}
+function payRateSave(uid){
+  var b = +$('prBasic').value, f = $('prFrom').value;
+  if(!(b > 0)) return toast('Enter the basic salary','bad');
+  if(!f) return toast('Enter the date it was agreed from \u2014 it is never assumed','bad');
+  hrCall({ action:'rate', user:uid, basic:b, from:f, note:$('prNote').value }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not saved','bad');
+    toast('Rate saved','good'); payPeople();
+  });
+}
+
+function payDatesForm(uid){
+  var p = personOf(uid), per = p.person || {};
+  modal('Employment \u00b7 ' + p.name,
+    '<div class="two"><div class="field"><label>Joined on</label><input id="pdJ" type="date" value="' + esc(per.joined||'') + '"></div>'+
+    '<div class="field"><label>Last day (only when leaving)</label><input id="pdL" type="date" value="' + esc(per.left||'') + '"></div></div>'+
+    '<div class="field"><label>Designation</label><input id="pdD" value="' + esc(per.designation||'') + '" placeholder="Technician"></div>'+
+    '<div class="help">Setting the last day makes that month the final one: every advance is '+
+    'recovered in full on it. Set it before making that month\u2019s slip.</div>',
+    [{t:'Back',cls:'ghost',f:'payPeople()'},{t:'Save',cls:'',f:"payDatesSave('" + uid + "')"}]);
+}
+function payDatesSave(uid){
+  hrCall({ action:'person', user:uid, joined:$('pdJ').value, left:$('pdL').value,
+           designation:$('pdD').value }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not saved','bad');
+    toast('Saved','good'); payPeople();
+  });
+}
+
+/* ---------- advances ---------- */
+
+function payAdvances(){
+  payLoad(function(){
+    var rows = [];
+    _pay.people.forEach(function(p){ (p.advances||[]).forEach(function(a){ rows.push([p, a]); }); });
+    modal('Advances', (rows.length ? rows.map(function(x){
+      var p = x[0], a = x[1];
+      return '<div class="card" style="padding:10px 12px;margin-bottom:7px"><div class="ttl">' +
+        esc(p.name) + ' \u00b7 ' + rs(a.amount) + (a.purpose ? ' \u00b7 ' + esc(a.purpose) : '') + '</div>'+
+        '<div class="meta">Given ' + esc(dmy(a.given)) + ' \u00b7 ' + a.instalments + ' instalments from ' +
+        esc(monthName(a.first)) + ' \u00b7 <b>' + (a.balance > 0 ? rs(a.balance) + ' left' : 'recovered') + '</b></div></div>';
+    }).join('') : '<div class="empty">No advances.</div>'),
+    [{t:'Back',cls:'ghost',f:'salaryBox()'},{t:'Give an advance',cls:'',f:'payAdvanceForm()'}]);
+  });
+}
+
+function personPicker(id){
+  return '<select id="' + id + '"><option value="">\u2014 choose the person \u2014</option>' +
+    _pay.people.map(function(p){ return '<option value="' + p.user + '">' + esc(p.name) + '</option>'; }).join('') +
+    '</select>';
+}
+
+function payAdvanceForm(){
+  var go = function(){
+    modal('Give an advance',
+      '<div class="field"><label>To whom (required)</label>' + personPicker('paWho') + '</div>'+
+      '<div class="two"><div class="field"><label>Amount (Rs.)</label><input id="paAmt" type="number" inputmode="numeric"></div>'+
+      '<div class="field"><label>Given on (required)</label><input id="paGiven" type="date"></div></div>'+
+      '<div class="two"><div class="field"><label>Instalments</label><input id="paN" type="number" inputmode="numeric" placeholder="6"></div>'+
+      '<div class="field"><label>First deduction</label><input id="paFirst" type="month"></div></div>'+
+      '<div class="field"><label>Purpose</label><input id="paWhy" placeholder="Bike \u00b7 Medical \u00b7 \u2026"></div>'+
+      '<div class="help">Each instalment is the amount divided evenly; what is left over goes '+
+      'on the last one, so the total recovers exactly.</div>',
+      [{t:'Back',cls:'ghost',f:'payAdvances()'},{t:'Save',cls:'',f:'payAdvanceSave()'}]);
+  };
+  _pay ? go() : payLoad(go);
+}
+function payAdvanceSave(){
+  var who = $('paWho').value, amt = +$('paAmt').value, n = +$('paN').value;
+  if(!who) return toast('Choose the person \u2014 it is never assumed','bad');
+  if(!(amt > 0) || !(n >= 1)) return toast('Enter the amount and the number of instalments','bad');
+  if(!$('paGiven').value || !$('paFirst').value) return toast('Enter the date given and the first month','bad');
+  hrCall({ action:'advance', user:who, amount:amt, given:$('paGiven').value, instalments:n,
+           first:$('paFirst').value, purpose:$('paWhy').value }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not saved','bad');
+    toast('Advance recorded','good'); payAdvances();
+  });
+}
+
+function payBonusForm(){
+  var go = function(){
+    modal('Bonus',
+      '<div class="field"><label>To whom (required)</label>' + personPicker('pbWho') + '</div>'+
+      '<div class="two"><div class="field"><label>Amount (Rs.)</label><input id="pbAmt" type="number" inputmode="numeric"></div>'+
+      '<div class="field"><label>On the slip for</label><input id="pbMonth" type="month"></div></div>'+
+      '<div class="field"><label>Reason</label><input id="pbWhy" placeholder="Eid \u00b7 target met \u00b7 \u2026"></div>',
+      [{t:'Back',cls:'ghost',f:'salaryBox()'},{t:'Save',cls:'',f:'payBonusSave()'}]);
+  };
+  _pay ? go() : payLoad(go);
+}
+function payBonusSave(){
+  if(!$('pbWho').value) return toast('Choose the person','bad');
+  if(!(+$('pbAmt').value > 0) || !$('pbMonth').value) return toast('Enter the amount and the month','bad');
+  hrCall({ action:'bonus', user:$('pbWho').value, amount:+$('pbAmt').value, month:$('pbMonth').value,
+           reason:$('pbWhy').value }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not saved','bad');
+    toast('Bonus recorded','good'); salaryBox();
+  });
+}
+
+/* ---------- a day's decisions, from the attendance screen ---------- */
+
+function attApprove(uid, day){
+  var p = (_attData.people || []).filter(function(x){ return x.user === uid; })[0];
+  var r = p && p.rows.filter(function(x){ return x.day === day; })[0] || {};
+  var w = r.waive || [];
+  var cb = function(id, label, on, show){
+    return show ? '<label style="display:flex;gap:9px;align-items:center;font-weight:400;padding:6px 0">'+
+      '<input type="checkbox" id="' + id + '" style="width:auto"' + (on ? ' checked' : '') + '>' + label + '</label>' : '';
+  };
+  var early = r.out && hhmm(r.out) < '18:00';
+  modal('Decisions \u00b7 ' + (p ? p.name : '') + ' \u00b7 ' + dmy(day),
+    cb('apOT', 'Overtime approved (' + Math.floor((r.ot_min||0)/60) + ' whole hour(s))', r.okOT, (r.ot_min||0) >= 60)+
+    cb('apEarly', 'Leaving early approved \u2014 no deduction', r.okEarly, early)+
+    (r.status === 'present' || r.status === 'half' ?
+      '<div class="field" style="margin-top:6px"><label>Half day</label><select id="apHalf">'+
+        '<option value="">No</option>'+
+        '<option value="unpaid"' + (r.status==='half' && !r.halfPaid ? ' selected' : '') + '>Half day \u2014 half a day deducted</option>'+
+        '<option value="paid"' + (r.status==='half' && r.halfPaid ? ' selected' : '') + '>Half day \u2014 paid, no deduction</option>'+
+      '</select></div>' : '')+
+    cb('apWL', 'Forgive this late mark', w.indexOf('late') > -1, !!r.late)+
+    cb('apWA', 'Forgive this absence', w.indexOf('absent') > -1, r.status === 'absent')+
+    cb('apWV', 'Forgive this leave', w.indexOf('leave') > -1, r.status === 'leave')+
+    '<div class="field"><label>Reason (required \u2014 printed on the slip)</label>'+
+      '<input id="apNote" value="' + esc(r.waiveNote||'') + '"></div>',
+    [{t:'Back',cls:'ghost',f:'attendanceBox()'},{t:'Save',cls:'',f:"attApproveSave('" + uid + "','" + day + "')"}]);
+}
+
+function attApproveSave(uid, day){
+  var note = $('apNote').value.trim();
+  if(!note) return toast('Write the reason \u2014 it goes on the slip','bad');
+  var b = { action:'approve', user:uid, day:day, note:note, waive:[] };
+  if($('apOT')) b.okOT = $('apOT').checked;
+  if($('apEarly')) b.okEarly = $('apEarly').checked;
+  if($('apHalf')){ b.half = !!$('apHalf').value; b.halfPaid = $('apHalf').value === 'paid'; }
+  if($('apWL') && $('apWL').checked) b.waive.push('late');
+  if($('apWA') && $('apWA').checked) b.waive.push('absent');
+  if($('apWV') && $('apWV').checked) b.waive.push('leave');
+  hrCall(b).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not saved','bad');
+    toast('Saved','good'); _attWho = uid; attendanceBox();
+  });
+}
+
+/* ---------- slips ---------- */
+
+var _slipMonth = null, _slips = [];
+
+function paySlips(month){
+  _slipMonth = month || _slipMonth || (function(){
+    var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);   /* last month, by default */
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); })();
+  hrCall({ action:'slips.month', month:_slipMonth }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Could not load','bad');
+    _slips = d.slips || [];
+    var bar = '<div class="row" style="align-items:center;margin-bottom:10px">'+
+      '<button class="btn ghost sm" onclick="slipShift(-1)">\u2039</button>'+
+      '<div class="grow" style="text-align:center;font-weight:600">' + monthName(_slipMonth) + '</div>'+
+      '<button class="btn ghost sm" onclick="slipShift(1)">\u203a</button></div>';
+    modal('Salary slips', bar + (_slips.length ? _slips.map(function(s, i){
+      return '<div class="card tap" style="padding:10px 12px;margin-bottom:7px" onclick="slipView(' + i + ')">'+
+        '<div class="row"><div class="grow"><div class="ttl">' + esc(s.name) + '</div>'+
+        '<div class="meta">' + (s.status === 'final' ? '\u2714 finalised' : 'draft') +
+          (s.no_out && s.no_out.length ? ' \u00b7 <span style="color:var(--amber)">' + s.no_out.length + ' day(s) without check-out</span>' : '') +
+        '</div></div><div class="ttl" style="' + (s.net < 0 ? 'color:var(--red)' : '') + '">' + rs(s.net) + '</div></div></div>';
+    }).join('') : '<div class="empty">No slips for this month yet.</div>'),
+    [{t:'Back',cls:'ghost',f:'salaryBox()'},{t:'Make drafts',cls:'',f:'slipMake()'}]);
+  });
+}
+function slipShift(k){
+  var y = +_slipMonth.slice(0,4), m = +_slipMonth.slice(5,7) + k;
+  if(m < 1){ m = 12; y--; } if(m > 12){ m = 1; y++; }
+  paySlips(y + '-' + String(m).padStart(2,'0'));
+}
+function slipMake(){
+  hrCall({ action:'slips.make', month:_slipMonth }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not made','bad');
+    if((d.problems||[]).length) toast(d.problems.join(' \u00b7 '), 'bad');
+    else toast(d.made.length + ' draft(s) made','good');
+    paySlips();
+  });
+}
+
+function slipView(i, own){
+  var s = own ? _mySlips[i] : _slips[i];
+  var admin = can('attendance.all');
+  var lines = [
+    ['Basic salary' + (s.full_month ? '' : ' (' + s.days_employed + ' days \u00d7 ' + rs2(s.per_day) + ')'), s.basic_due, 1],
+    s.ot_amount ? ['Overtime ' + s.ot_hours + ' h \u00d7 ' + rs2(s.per_hour), s.ot_amount, 1] : null,
+    s.bonus ? ['Bonus', s.bonus, 1] : null,
+    s.leave_deduction ? ['Leave ' + s.leave_days + ' day(s)', s.leave_deduction, -1] : null,
+    s.absent_deduction ? ['Absent ' + s.absent_days + ' day(s)', s.absent_deduction, -1] : null,
+    s.late_deduction ? ['Late ' + s.late_marks + ' \u00f7 3 = ' + (+s.late_days).toFixed(2) + ' day(s)', s.late_deduction, -1] : null,
+    s.half_deduction ? ['Half days ' + s.half_days_unpaid + ' day', s.half_deduction, -1] : null,
+    s.early_deduction ? ['Left early ' + s.early_minutes + ' min', s.early_deduction, -1] : null,
+    s.advance_deduction ? ['Advance' + (s.final_month ? ' (final month \u2014 in full)' : ''), s.advance_deduction, -1] : null
+  ].filter(Boolean);
+  modal(s.name + ' \u00b7 ' + monthName(s.month),
+    lines.map(function(l){
+      return '<div class="row" style="padding:5px 0;border-bottom:1px solid var(--line)"><div class="grow">' +
+        esc(l[0]) + '</div><div style="' + (l[2] < 0 ? 'color:var(--red)' : '') + '">' +
+        (l[2] < 0 ? '\u2212 ' : '') + rs(l[1]) + '</div></div>';
+    }).join('') +
+    '<div class="row" style="padding:10px 0;font-size:18px;font-weight:700"><div class="grow">Net salary</div>'+
+      '<div style="' + (s.net < 0 ? 'color:var(--red)' : '') + '">' + rs(s.net) + '</div></div>' +
+    (s.owes ? '<div class="note d">Deductions are more than the salary: <b>' + rs(s.owes) +
+      '</b> is owed, to be recovered separately.</div>' : '') +
+    ((s.concessions||[]).length ? '<div class="note g"><b>Concessions given</b><br>' + s.concessions.map(function(c){
+      return esc(dmy(c.day)) + ' \u00b7 ' + esc(c.what) + (c.note ? ' \u2014 ' + esc(c.note) : ''); }).join('<br>') + '</div>' : '') +
+    ((s.no_out||[]).length ? '<div class="note w">Days without a check-out: ' + s.no_out.map(dmy).join(', ') +
+      '. Fix them in Attendance before finalising.</div>' : ''),
+    [{t:'Back',cls:'ghost',f: own ? 'mySlips()' : 'paySlips()'},
+     {t:'Print',cls:'ghost',f:'slipPrint(' + i + ',' + (own ? 1 : 0) + ')'}]
+      .concat(admin && !own && s.status !== 'final' ? [{t:'Finalise',cls:'',f:'slipFinal(' + i + ')'}] : []));
+}
+
+function slipFinal(i){
+  var s = _slips[i];
+  if(!confirm('Finalise ' + s.name + '\u2019s slip for ' + monthName(s.month) + '?\n\n' +
+              'The figures will be frozen and advance instalments recovered.')) return;
+  hrCall({ action:'slips.final', id:s.id }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Not finalised','bad');
+    toast('Finalised','good'); paySlips();
+  });
+}
+
+var _mySlips = [];
+function mySlips(){
+  if(!payNeedServer()) return;
+  hrCall({ action:'slips.mine' }).then(function(d){
+    if(!d || !d.ok) return toast((d && d.msg) || 'Could not load','bad');
+    _mySlips = d.slips || [];
+    modal('My salary slips', _mySlips.length ? _mySlips.map(function(s, i){
+      return '<div class="card tap" style="padding:10px 12px;margin-bottom:7px" onclick="slipView(' + i + ',1)">'+
+        '<div class="row"><div class="grow ttl">' + monthName(s.month) + '</div>'+
+        '<div class="ttl">' + rs(s.net) + '</div></div></div>';
+    }).join('') : '<div class="empty">No slips yet.</div>', [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+  });
+}
+
+/* The printed slip: one A4 page, the rules on it, and a daily table from
+   which the person can count their own late marks and get the same number. */
+function slipPrint(i, own){
+  var s = own ? _mySlips[i] : _slips[i];
+  var days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var y = +s.month.slice(0,4), m = +s.month.slice(5,7);
+  var inMonth = new Date(y, m, 0).getDate();
+  var cell = 'padding:1.2mm 1.5mm;border-bottom:1px solid #E4E8EE';
+  var row = function(a, b, neg){
+    return '<tr><td style="' + cell + '">' + esc(a) + '</td><td style="' + cell + ';text-align:right">' +
+      (neg ? '\u2212 ' : '') + rs(b) + '</td></tr>'; };
+  var earn = row('Basic salary' + (s.full_month ? '' : ' (' + s.days_employed + ' days \u00d7 ' + rs2(s.per_day) + ')'), s.basic_due) +
+    row('Overtime \u2014 ' + s.ot_hours + ' h \u00d7 ' + rs2(s.per_hour), s.ot_amount) +
+    row('Bonus', s.bonus);
+  var ded = row('Leave \u2014 ' + s.leave_days + ' \u00d7 ' + rs2(s.per_day), s.leave_deduction, 1) +
+    row('Absent \u2014 ' + s.absent_days + ' \u00d7 ' + rs2(s.per_day), s.absent_deduction, 1) +
+    row('Late \u2014 ' + s.late_marks + ' \u00f7 3 = ' + (+s.late_days).toFixed(2) + ' \u00d7 ' + rs2(s.per_day), s.late_deduction, 1) +
+    row('Half days \u2014 ' + s.half_days_unpaid + ' \u00d7 ' + rs2(s.per_day), s.half_deduction, 1) +
+    row('Left early \u2014 ' + s.early_minutes + ' min \u00d7 ' + rs2(s.per_hour / 60), s.early_deduction, 1) +
+    row('Advance' + (s.final_month ? ' \u2014 final month, in full' : ' \u2014 instalment'), s.advance_deduction, 1);
+  var table = (s.table || []).map(function(r){
+    var dt = new Date(r.day + 'T12:00:00');
+    var st = { present:'Present', absent:'Absent', leave:'Leave', holiday:'Holiday', weekly_off:'Sunday', half:'Half day' }[r.status] || r.status;
+    return '<tr><td style="' + cell + '">' + esc(dmy(r.day)) + '</td><td style="' + cell + '">' + days[dt.getDay()] +
+      '</td><td style="' + cell + '">' + (r.in||'') + '</td><td style="' + cell + '">' + (r.out||'') +
+      '</td><td style="' + cell + '">' + (r.late ? 'Yes' : '') + '</td><td style="' + cell + '">' + (r.ot_h ? r.ot_h + ' h' : '') +
+      '</td><td style="' + cell + '">' + (r.early ? r.early + ' min' : '') + '</td><td style="' + cell + '">' + st + '</td></tr>';
+  }).join('');
+  printBox('Salary slip ' + s.name + ' ' + monthName(s.month),
+    '<div style="display:flex;justify-content:space-between;border-bottom:2px solid #1C2E4A;padding-bottom:3mm;margin-bottom:4mm">'+
+      '<div><div style="font-size:16pt;font-weight:700;color:#1C2E4A">Paragon Copier Solution</div>'+
+      '<div style="font-size:9pt;color:#55606D">Salary slip</div></div>'+
+      '<div style="text-align:right;font-size:8.5pt;color:#55606D;line-height:1.6">'+
+        esc(DB.company && DB.company.addr || '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi') +
+        '<br>NTN 8963611-7</div></div>'+
+    '<table style="font-size:10pt;margin:0 0 3mm"><tr><td><b>' + esc(s.name) + '</b><br>' + esc(s.designation || '') + '</td>'+
+      '<td style="text-align:right"><b>' + monthName(s.month) + '</b><br>' + inMonth + ' days in month' +
+      (s.full_month ? '' : '<br>Employed ' + esc(dmy(s.period[0])) + ' to ' + esc(dmy(s.period[1]))) + '</td></tr></table>'+
+    '<div style="font-size:8.5pt;background:#F5F7F9;padding:2mm 3mm;border-radius:1mm;margin-bottom:3mm">'+
+      'Duty 09:00\u201318:00 \u00b7 Clock-in up to 09:30 is on time, 09:31 onward is late \u00b7 3 late marks = 1 day\u2019s deduction \u00b7 '+
+      'A full-day leave or absence = 1 day\u2019s deduction \u00b7 Holidays and Sundays are paid \u00b7 Work after 18:00 is overtime, '+
+      'paid by the whole hour when approved \u00b7 Leaving early is deducted by the minute unless approved \u00b7 '+
+      'Per day = basic \u00f7 30 \u00b7 Per hour = per day \u00f7 8</div>'+
+    '<div style="font-size:9.5pt;margin-bottom:3mm"><b>Present</b> ' + s.present + ' \u00b7 <b>Leave</b> ' + s.leave_days +
+      ' \u00b7 <b>Absent</b> ' + s.absent_days + ' \u00b7 <b>Holidays</b> ' + s.holidays + ' \u00b7 <b>Sundays</b> ' + s.weekly_offs +
+      ' \u00b7 <b>Late marks</b> ' + s.late_marks + ' \u00b7 <b>Overtime</b> ' + s.ot_hours + ' h</div>'+
+    '<table style="font-size:8pt"><tr style="background:#F5F7F9"><th>Date</th><th>Day</th><th>In</th><th>Out</th><th>Late</th>'+
+      '<th>Overtime</th><th>Early</th><th>Status</th></tr>' + table + '</table>'+
+    '<table style="font-size:10pt;margin-top:3mm"><tr><td style="width:50%;vertical-align:top;padding-right:3mm">'+
+      '<b>Earnings</b><table>' + earn + '</table></td>'+
+      '<td style="vertical-align:top"><b>Deductions</b><table>' + ded + '</table></td></tr></table>'+
+    '<div style="border:2px solid #1C2E4A;border-radius:1.5mm;padding:3mm 4mm;margin:3mm 0">'+
+      '<div style="display:flex;justify-content:space-between;font-size:15pt;font-weight:700">'+
+        '<span>Net salary</span><span>' + rs(s.net) + '</span></div>'+
+      '<div style="font-size:9.5pt;color:#55606D">' + rupeesInWords(s.net) + '</div>'+
+      (s.owes ? '<div style="font-size:10pt;color:#B42318;margin-top:1mm"><b>Owed by the employee: ' + rs(s.owes) +
+        '</b> \u2014 to be recovered separately.</div>' : '') + '</div>'+
+    ((s.advances||[]).length ? '<div style="font-size:9pt"><b>Advances</b> ' + s.advances.map(function(a){
+      return esc(a.purpose || 'Advance') + ': ' + rs(a.amount) + ', recovered ' + rs(a.recovered + a.this_month) +
+        ', left ' + rs(Math.max(0, a.balance - a.this_month)); }).join(' \u00b7 ') + '</div>' : '')+
+    ((s.concessions||[]).length ? '<div style="font-size:9pt;margin-top:2mm"><b>Concessions given to you this month</b><br>' +
+      s.concessions.map(function(c){ return esc(dmy(c.day)) + ' \u2014 ' + esc(c.what) + (c.note ? ' (' + esc(c.note) + ')' : ''); }).join('<br>') + '</div>' : '')+
+    '<table style="margin-top:12mm;font-size:9pt"><tr>'+
+      '<td style="border-top:1px solid #16202B;padding-top:1mm;width:30%">Prepared by</td><td style="width:5%"></td>'+
+      '<td style="border-top:1px solid #16202B;padding-top:1mm;width:30%">Approved by</td><td style="width:5%"></td>'+
+      '<td style="border-top:1px solid #16202B;padding-top:1mm;width:30%">Received by</td></tr></table>'+
+    (s.status !== 'final' ? '<div style="text-align:center;color:#B42318;font-weight:700;margin-top:4mm">DRAFT \u2014 not finalised</div>' : ''));
+}
+
+/* ============================================================
    CLIENTS, MACHINES, PEOPLE
    ============================================================ */
 
@@ -8100,6 +8918,13 @@ function drawMore(){
                _installOffer ? 'Ready \u2014 tap to install'
                              : 'How to put it on the home screen',
                "installApp()"]);
+  if(sharingOn())
+    rows.push(['\u{1F4B0}', can('attendance.all') ? 'Salary' : 'My salary slips',
+               can('attendance.all') ? 'Rates \u00b7 advances \u00b7 bonuses \u00b7 slips' : 'Your finalised slips',
+               "salaryBox()"]);
+  if(sharingOn())
+    rows.push(['\u{1F552}','Attendance', can('attendance.all') ? 'Everyone, by month \u00b7 corrections \u00b7 holidays'
+               : 'Your own days, by month', "attendanceBox()"]);
   if(can('complaint.add'))
     rows.push(['\u{1F4E5}','Import from Excel',
                'Clients, machines and the store, in one go', "importBox('clients')"]);
@@ -8553,6 +9378,7 @@ function syncNow(quiet){
       pullMeters(true);
       phoneNotify();
       phoneConfig();
+      try { attFlush(); } catch(e){}
       draw();
       if(!quiet) toast(n ? n + ' change(s) came down' : 'Up to date','good');
     })
@@ -8567,6 +9393,14 @@ function syncNow(quiet){
    The people are on the server, not on a new phone, so the phone has to
    reach the server before anybody can sign in. This is the one thing that
    can be done from the sign-in screen. */
+/* A connected phone has no use for the Connect button on its sign-in
+   screen; only an unconnected one shows it. */
+function gateJoinButton(){
+  var j = document.getElementById('gJoin');
+  if(j) j.style.display = sharingOn() ? 'none' : '';
+}
+document.addEventListener('DOMContentLoaded', gateJoinButton);
+
 function joinServer(){
   $('gate').classList.add('hide');
   modal('Connect to your server',
@@ -8630,6 +9464,7 @@ function doJoin(){
     var people = DB.users.filter(function(u){ return u.active; }).length;
     closeModal();
     $('gate').classList.remove('hide');
+    gateJoinButton();
     toast('Connected and locked. ' + people + ' account(s) came down \u2014 sign in '+
           'with your own.', 'good');
   })
@@ -8653,6 +9488,7 @@ function startApp(){
   watchNet();
   try { phoneConfig(); phoneNotify(); } catch(e){}
   try { pushLinks(); if(DB.pushOn) pushCfg(); } catch(e){}
+  try { attRefresh(); attFlush(); } catch(e){}
   setTimeout(sweep, 1500);   /* what is overdue, what is low, who to call */
   setInterval(sweep, 600000);
   if(sharingOn()){
