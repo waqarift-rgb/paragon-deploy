@@ -1892,6 +1892,63 @@ start();
 
 
 # ================================================================
+#  A NEW PHONE JOINING
+#  ----------------------------------------------------------------
+#  A phone joins with an admin's user name and password, and is
+#  handed the shared secret only once those are right. So nobody
+#  but an admin can connect a phone, and the secret itself never
+#  has to be read out, typed in, or known by anyone else.
+# ================================================================
+
+import hashlib as _jh
+
+_join_fail = {}
+_join_lock = threading.Lock()
+
+
+def _join_allowed(ip):
+    """Five wrong tries in fifteen minutes and that address waits.
+    Enough for a mistyped password; far too few to guess one."""
+    now_s = time.time()
+    with _join_lock:
+        tries = [t for t in _join_fail.get(ip, []) if now_s - t < 900]
+        _join_fail[ip] = tries
+        return len(tries) < 5
+
+
+def _join_failed(ip):
+    with _join_lock:
+        _join_fail.setdefault(ip, []).append(time.time())
+
+
+def store_join(cid, req, ip):
+    if not _join_allowed(ip):
+        return {"ok": False, "msg": "Too many wrong tries. Wait fifteen minutes "
+                                    "and try again."}
+    name = str(req.get("user") or "").strip().lower()
+    plain = str(req.get("pass") or "")
+    d = store_load(cid)
+    admins = [u for u in d.get("users", {}).values()
+              if isinstance(u, dict) and u.get("role") == "admin"
+              and u.get("active", True) and u.get("passHash")]
+    if not admins:
+        return {"ok": False, "msg": "No admin account has reached this server "
+                "yet. On the admin's phone, choose your own password (not "
+                "admin123) and let it sync, then try again."}
+    for u in admins:
+        if str(u.get("email", "")).strip().lower() != name:
+            continue
+        # the same hash the app keeps: nothing here ever sees a stored password
+        h = _jh.sha256(("paragon:%s:%s" % (u.get("id"), plain)).encode("utf-8")).hexdigest()
+        if hmac.compare_digest(h, str(u.get("passHash"))):
+            note("%s phone joined by admin %s from %s" % (cid, u.get("name") or name, ip))
+            return {"ok": True, "key": SHARED_SECRET, "admin": u.get("name") or name}
+        break
+    _join_failed(ip)
+    return {"ok": False, "msg": "That is not an admin's user name and password."}
+
+
+# ================================================================
 #  WEB PUSH
 #  ----------------------------------------------------------------
 #  For iPhones, and for any phone using the app in a browser rather
@@ -2259,7 +2316,7 @@ self.addEventListener('notificationclick', function(e){
 #  WHAT A REQUEST CAN ASK FOR
 # ================================================================
 
-BUILD = "2026-09-20 sharing + counters + console + QR complaints + installable app + every kind shared + phone notes + iPhone push"
+BUILD = "2026-09-20 sharing + counters + console + QR complaints + installable app + every kind shared + phone notes + iPhone push + admin join"
 
 
 def handle(req):
@@ -2393,6 +2450,17 @@ class Handler(BaseHTTPRequestHandler):
         # The client's form is the one thing here with no shared secret,
         # because a client who has to be given one will phone instead. It
         # can only look up a machine and report a fault on it.
+        if path == "/join":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > 4096:
+                    return self._send({"ok": False, "msg": "Too large"}, 413)
+                raw = self.rfile.read(length).decode("utf-8", "replace")
+                req = json.loads(raw) if raw else {}
+            except Exception:
+                return self._send({"ok": False, "msg": "Could not read that."}, 400)
+            return self._send(store_join("main", req, self.client_address[0]))
+
         if path == "/scan":
             try:
                 length = int(self.headers.get("Content-Length") or 0)

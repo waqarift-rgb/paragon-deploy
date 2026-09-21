@@ -8085,8 +8085,9 @@ function drawMore(){
     rows.push(['\u{1F4CA}','Reports', 'Ledger, page yield, machines, technicians', "reports()"]);
   if(can('reports'))
     rows.push(['\u{1F4CB}','What happened', 'Every change, with a name and a time', "listLog()"]);
-  rows.push(['\u{1F517}','Paragon server', DB.share.on ? 'On \u00b7 ' + esc(DB.share.pc)
-              : 'Off \u2014 this device only', "shareSetup()"]);
+  rows.push(['\u{1F517}','Paragon server', !DB.share.on ? 'Off \u2014 this device only'
+              : shareLocked() ? 'Connected \u00b7 locked \u{1F512}'
+              : 'On \u00b7 ' + esc(DB.share.pc), "shareSetup()"]);
   if(pushState() !== 'apk')
     rows.push(['\u{1F514}','Notifications on this phone', {
       on:'On', off:'Off \u2014 tap to switch on', homescreen:'Add to Home Screen first',
@@ -8364,7 +8365,50 @@ function bridge(body){
   }).then(function(r){ return r.json(); });
 }
 
+/* ---------- the lock on the connection ----------
+   Once a phone is connected, what it is connected to is an admin's business.
+   Anybody else sees only that it is connected. */
+var _shareOpen = false;
+
+function shareLocked(){
+  return sharingOn() && DB.share.locked !== false && !_shareOpen;
+}
+
 function shareSetup(){
+  if(shareLocked()) return shareUnlock();
+  shareForm();
+}
+
+function shareUnlock(){
+  modal('Paragon server',
+    '<div class="note g"><b>Connected and locked.</b> This phone syncs with the '+
+    'server. Only an admin can see or change the connection.</div>'+
+    (DB.share.at ? '<div class="help" style="margin-bottom:10px">Last sync '+
+      esc(dtime(DB.share.at))+'.</div>' : '')+
+    '<div class="field"><label>Admin user name</label>'+
+      '<input id="ulUser" autocapitalize="off" autocomplete="off"></div>'+
+    '<div class="field"><label>Admin password</label>'+
+      '<input id="ulPass" type="password" autocomplete="off"></div>',
+    [{t:'Close',cls:'ghost',f:'closeModal()'},
+     {t:'Sync now',cls:'ghost',f:'closeModal();syncNow()'},
+     {t:'Unlock',cls:'',f:'doShareUnlock()'}]);
+}
+
+function doShareUnlock(){
+  var name = $('ulUser').value.trim().toLowerCase(), pass = $('ulPass').value;
+  var u = DB.users.filter(function(x){
+    return String(x.email||'').toLowerCase() === name; })[0];
+  if(!u || !u.active || u.role !== 'admin' || !checkPass(u, pass)){
+    $('ulPass').value = '';
+    return toast('That is not an admin\u2019s user name and password.','bad');
+  }
+  _shareOpen = true;
+  logIt('share','Server settings unlocked', u.name || name);
+  closeModal();
+  shareForm();
+}
+
+function shareForm(){
   modal('Sharing',
     '<div class="note i">Every phone keeps its own copy and syncs with the '+
     'Paragon server, so work carries on when the signal does not.</div>'+
@@ -8374,14 +8418,18 @@ function shareSetup(){
       '<div class="help">The address <code>paragon_server.py</code> prints when '+
       'it starts.</div></div>'+
     '<div class="field"><label>Shared secret</label>'+
-      '<input id="shKey" value="'+esc(DB.share.key)+'" autocapitalize="off"></div>'+
+      '<input id="shKey" type="password" value="'+esc(DB.share.key)+'" '+
+      'autocapitalize="off" autocomplete="off">'+
+      '<div class="help">Needed only on the first phone. Every other phone '+
+      'connects with an admin\u2019s name and password, from the sign-in '+
+      'screen.</div></div>'+
 
     '<div class="field"><label>Sharing</label><select id="shOn">'+
       '<option value="">off \u2014 this device only</option>'+
       '<option value="1"'+(DB.share.on?' selected':'')+'>on</option></select></div>'+
     (DB.share.at ? '<div class="help">This device is <code>'+esc(DB.share.pc)+
       '</code>. Last sync '+dtime(DB.share.at)+'.</div>' : ''),
-    [{t:'Cancel',cls:'ghost',f:'closeModal()'},
+    [{t:'Cancel',cls:'ghost',f:'_shareOpen=false;closeModal()'},
      {t:'Test',cls:'ghost',f:'testShare()'},
      {t:'Save',cls:'',f:'saveShare()'}]);
 }
@@ -8392,7 +8440,7 @@ function testShare(){
   var keep = DB.share.url, keepK = DB.share.key;
   DB.share.url = url; DB.share.key = $('shKey').value;
   bridge({ action:'ping' }).then(function(d){
-    toast(d && d.ok ? 'The bridge answered' : ((d && d.msg) || 'It refused'),
+    toast(d && d.ok ? 'Paragon server is running' : ((d && d.msg) || 'It refused'),
           d && d.ok ? 'good' : 'bad');
   }).catch(function(e){
     toast('Could not reach it: ' + e.message,'bad');
@@ -8405,6 +8453,8 @@ function saveShare(){
   DB.share.url = $('shUrl').value.trim();
   DB.share.key = $('shKey').value;
   DB.share.on = !!$('shOn').value;
+  DB.share.locked = true;          /* saved means locked again */
+  _shareOpen = false;
   save(); closeModal(); draw();
   if(DB.share.on) syncNow();
   else toast('Sharing off. This device works on its own.','good');
@@ -8520,28 +8570,49 @@ function syncNow(quiet){
 function joinServer(){
   $('gate').classList.add('hide');
   modal('Connect to your server',
-    '<div class="note i">Your team\u2019s accounts are on the Paragon server. '+
-    'Connect once, then sign in with your own name.</div>'+
+    '<div class="note i">Only an admin can connect a phone. Enter the server '+
+    'address and <b>an admin\u2019s</b> user name and password \u2014 the phone '+
+    'is then connected and locked, and the person using it never needs the '+
+    'server\u2019s secret.</div>'+
     '<div class="field"><label>Server address</label>'+
-      '<input id="jnUrl" placeholder="http://192.168.1.5:8080/" '+
+      '<input id="jnUrl" placeholder="http://139.180.219.41:8080/" '+
       'autocapitalize="off" value="'+esc(DB.share.url||'')+'"></div>'+
-    '<div class="field"><label>Shared secret</label>'+
-      '<input id="jnKey" autocapitalize="off"></div>'+
-    '<div class="help">Ask whoever runs the office for both.</div>',
+    '<div class="field"><label>Admin user name</label>'+
+      '<input id="jnUser" autocapitalize="off" autocomplete="off"></div>'+
+    '<div class="field"><label>Admin password</label>'+
+      '<input id="jnPass" type="password" autocomplete="off"></div>',
     [{t:'Back',cls:'ghost',f:"closeModal();$('gate').classList.remove('hide')"},
      {t:'Connect',cls:'',f:'doJoin()'}]);
 }
 
+function joinUrl(url){
+  return String(url).replace(/\/+$/,'') + '/join';
+}
+
 function doJoin(){
-  var url = $('jnUrl').value.trim(), key = $('jnKey').value;
+  var url = $('jnUrl').value.trim();
+  var user = $('jnUser').value.trim(), pass = $('jnPass').value;
   if(!url) return toast('Put the server address in','bad');
-  DB.share.url = url; DB.share.key = key; DB.share.on = true;
+  if(!user || !pass) return toast('An admin\u2019s user name and password are needed','bad');
+  if(!/^https?:\/\//i.test(url)) url = 'http://' + url;
+  if(!/\/$/.test(url)) url += '/';
 
-  /* A new phone's own starting admin is dropped: the team's real accounts
-     are about to arrive, and a second admin123 must not join them. */
-  DB.users = DB.users.filter(function(u){ return !(u.seed && u.mustChange); });
+  fetch(joinUrl(url), { method:'POST', headers:{'Content-Type':'text/plain'},
+    body: JSON.stringify({ user:user, pass:pass }) })
+  .then(function(r){ return r.json(); })
+  .then(function(j){
+    if(!j || !j.ok) throw new Error((j && j.msg) || 'refused');
+    /* The secret arrives from the server and is kept on this phone only. The
+       settings are locked from here on; an admin unlocks them. */
+    DB.share.url = url; DB.share.key = j.key; DB.share.on = true;
+    DB.share.locked = true;
 
-  bridge({ action:'pull' }).then(function(d){
+    /* A new phone's own starting admin is dropped: the team's real accounts
+       are about to arrive, and a second admin123 must not join them. */
+    DB.users = DB.users.filter(function(u){ return !(u.seed && u.mustChange); });
+    return bridge({ action:'pull' });
+  })
+  .then(function(d){
     if(!d || !d.ok) throw new Error((d && d.msg) || 'refused');
     SYNC_KINDS.forEach(function(p){
       var remote = d[p[1]] || {};
@@ -8559,11 +8630,10 @@ function doJoin(){
     var people = DB.users.filter(function(u){ return u.active; }).length;
     closeModal();
     $('gate').classList.remove('hide');
-    toast(people ? 'Connected. ' + people + ' account(s) came down \u2014 sign in '+
-                   'with your own.' : 'Connected, but the server has no accounts yet.',
-          people ? 'good' : 'bad');
-  }).catch(function(e){
-    DB.share.on = false;
+    toast('Connected and locked. ' + people + ' account(s) came down \u2014 sign in '+
+          'with your own.', 'good');
+  })
+  .catch(function(e){
     toast('Could not connect: ' + e.message, 'bad');
   });
 }
