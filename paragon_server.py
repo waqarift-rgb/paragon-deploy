@@ -197,6 +197,17 @@ def store_push(cid, req):
                         wake.add(str(rec["to"]))
                 d[kind][rid] = rec
                 kept += 1
+        # A person deleted on one phone is removed everywhere. The id is
+        # remembered so a phone that still had them, syncing later, does not
+        # bring them back; their past work stays under their name in the
+        # records that reference them.
+        for uid_del in (req.get("deletedUsers") or {}):
+            if uid_del in d.get("users", {}):
+                d["users"].pop(uid_del, None); kept += 1
+            d.setdefault("deletedUsers", {})[str(uid_del)] = \
+                datetime.datetime.now().isoformat(timespec="seconds")
+        for uid_del in list(d.get("deletedUsers", {})):
+            d.get("users", {}).pop(uid_del, None)
         if kept:
             d["rev"] += 1
             store_save(cid, d)

@@ -471,6 +471,8 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
+var APP_VERSION = '1.5';
+var DEFAULT_SERVER = 'http://139.180.219.41:8080/';
 var DB = {};
 function save(){ sSet(KEY, JSON.stringify(DB)); }
 
@@ -485,6 +487,10 @@ function load(){
   DB.stock      = DB.stock      || [];     /* what is in the store */
   DB.log        = DB.log        || [];
   DB.share      = DB.share      || { on:false, url:'', key:'', client:'', pc:'', auto:true, at:'' };
+  /* A fresh phone already points at the server, so nobody has to type the
+     address \u2014 only an admin's user name and password are needed to connect.
+     A phone that is already connected is never touched. */
+  if(!DB.share.on && !DB.share.url) DB.share.url = DEFAULT_SERVER;
   DB.seq        = DB.seq        || { complaint: 1 };
   if(!DB.share.pc) DB.share.pc = 'pc-' + Math.random().toString(36).slice(2,7);
 
@@ -3380,14 +3386,15 @@ function openQuoteForm(id){
         return '<option value="'+k+'"'+(x&&x.brand===k?' selected':'')+'>'+
                esc(BRANDS[k].name)+'</option>'; }).join('')+'</select></div>'+
     '<div class="field"><label>Client</label>'+
-      '<select id="qfClient" onchange="qfBrandFollows()">'+
+      '<div class="row" style="gap:6px">'+
+      '<select id="qfClient" class="grow" onchange="qfBrandFollows()">'+
       DB.clients.map(function(c){
         return '<option value="'+c.id+'" data-brand="'+esc(c.brand||'paragon')+'"'+
-               (x&&x.client===c.id?' selected':'')+'>'+
+               ((x&&x.client===c.id)||(!x&&_qfPickClient===c.id)?' selected':'')+'>'+
                esc(c.name)+'</option>'; }).join('')+'</select>'+
-      '<div class="help">Choosing a client sets the company to the one he '+
-      'belongs to. Change it above if this one is going out under another '+
-      'name.</div></div>'+
+      '<button class="btn ghost sm" onclick="qfNewClient()">+ New</button></div>'+
+      '<div class="help">Client list mein na ho to <b>+ New</b> se abhi add karein. '+
+      'Choosing a client sets the company to the one he belongs to.</div></div>'+
     '<div class="two">'+
       '<div class="field"><label>Type</label><select id="qfType">'+
         '<option value="sales"'+(x&&x.type==='sales'?' selected':'')+'>Sales</option>'+
@@ -3422,6 +3429,41 @@ function defaultTerms(){
 /* A client belongs to a company, so a quotation for him starts there. It can
    still be changed, because the same client is sometimes quoted under another
    of the three. */
+/* From inside a quotation: add a client there and then, without losing your
+   place. On save he is added to the client list and the quotation reopens
+   with him already chosen. Full details (address, concern person, etc.) can
+   be filled later under Clients. */
+function qfNewClient(){
+  closeModal();
+  modal('New client',
+    '<div class="field"><label>Name</label><input id="ncName" placeholder="ABS Engineering"></div>'+
+    '<div class="field"><label>Which company</label><select id="ncBrand">'+
+      Object.keys(BRANDS).map(function(k){
+        return '<option value="'+k+'">'+esc(BRANDS[k].name)+'</option>'; }).join('')+'</select></div>'+
+    '<div class="field"><label>Full address</label><textarea id="ncAddr" rows="2" placeholder="Plot 12, Korangi, Karachi"></textarea></div>'+
+    '<div class="two">'+
+      '<div class="field"><label>Concern person</label><input id="ncWho" placeholder="Mr. Asif"></div>'+
+      '<div class="field"><label>Phone / WhatsApp</label><input id="ncWa" type="tel" placeholder="0300 1234567"></div>'+
+    '</div>'+
+    '<div class="field"><label>Email</label><input id="ncEmail" type="email" autocapitalize="off" placeholder="accounts@client.com"></div>',
+    [{t:'Back',cls:'ghost',f:'openQuoteForm(null)'},{t:'Add & continue',cls:'',f:'qfNewClientSave()'}]);
+}
+function qfNewClientSave(){
+  var name = $('ncName').value.trim();
+  if(!name) return toast('Client ka naam likhein','bad');
+  var c = { id:uid(), active:true, name:name, brand:$('ncBrand').value,
+            addr:$('ncAddr').value.trim(), who:$('ncWho').value.trim(),
+            wa:$('ncWa').value.trim(), phone:$('ncWa').value.trim(),
+            email:$('ncEmail').value.trim(), _at:now() };
+  DB.clients.push(c);
+  logIt('client','Added '+name+' (from a quotation)','');
+  save(); if(sharingOn()) syncSoon();
+  _qfPickClient = c.id;              /* the reopened form selects him */
+  toast(name+' added','good');
+  openQuoteForm(null);
+}
+var _qfPickClient = null;
+
 function qfBrandFollows(){
   var sel = $('qfClient');
   var opt = sel.options[sel.selectedIndex];
@@ -3429,6 +3471,7 @@ function qfBrandFollows(){
 }
 
 function saveQuote(id){
+  _qfPickClient = null;
   DB.quotes = DB.quotes || [];
   var x = id ? byId(DB.quotes, id) : null;
   var brand = $('qfBrand').value;
@@ -12545,10 +12588,39 @@ function chatWrap(){
 /* the badge on the chat button, kept fresh in the background */
 var _chatSwitchedOff = false;
 function chatBadge(){
+  var show = ME && ME.role !== 'operator' && sharingOn() && !_chatSwitchedOff;
   var b = document.getElementById('barChat');
-  if(!b) return;
-  b.style.display = ME && ME.role !== 'operator' && sharingOn() && !_chatSwitchedOff ? '' : 'none';
-  b.innerHTML = '\u{1F4AC}' + (_chatUnread ? '<span class="chat-dot">' + (_chatUnread > 99 ? '99+' : _chatUnread) + '</span>' : '');
+  if(b){
+    b.style.display = show ? '' : 'none';
+    b.innerHTML = '\u{1F4AC}' + (_chatUnread ? '<span class="chat-dot">' + (_chatUnread > 99 ? '99+' : _chatUnread) + '</span>' : '');
+  }
+  chatFab(show);
+}
+
+/* A round chat button, always in reach at the bottom-right of the screen.
+   Tap it and the chat opens. It carries the same unread count, and hides
+   itself while the chat is already open or when chat is off for this phone. */
+function chatFab(show){
+  var f = document.getElementById('chatFab');
+  if(!f){
+    f = document.createElement('div');
+    f.id = 'chatFab';
+    f.onclick = function(){ chatHome(); };
+    document.body.appendChild(f);
+    if(!document.getElementById('chatFabCss')){
+      var s = document.createElement('style'); s.id = 'chatFabCss';
+      s.textContent = '#chatFab{position:fixed;right:16px;bottom:calc(74px + env(safe-area-inset-bottom,0px));'+
+        'width:56px;height:56px;border-radius:50%;background:#12395E;color:#fff;font-size:26px;'+
+        'display:none;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.28);'+
+        'z-index:55;cursor:pointer}#chatFab .fab-dot{position:absolute;top:-2px;right:-2px;background:#1A7538;'+
+        'color:#fff;border-radius:11px;min-width:20px;height:20px;line-height:20px;font-size:11px;font-weight:700;'+
+        'text-align:center;padding:0 5px;border:2px solid #EFEAE2}';
+      document.head.appendChild(s);
+    }
+  }
+  var open = document.getElementById('chatWrap') && document.getElementById('chatWrap').classList.contains('on');
+  f.style.display = (show && !open) ? 'flex' : 'none';
+  f.innerHTML = '\u{1F4AC}' + (_chatUnread ? '<span class="fab-dot">' + (_chatUnread > 99 ? '99+' : _chatUnread) + '</span>' : '');
 }
 function chatRefreshBadge(){
   if(!chatOn()) return chatBadge();
@@ -12578,6 +12650,7 @@ window.addEventListener('pagehide', function(){ try { if(chatOn()) hrCall({ acti
 
 /* ---------- the list ---------- */
 function chatHome(){
+  var fab = document.getElementById('chatFab'); if(fab) fab.style.display = 'none';
   if(_chatSwitchedOff) return toast('Chat is switched off','bad');
   if(!chatOn()) return toast(sharingOn() ? 'Confirm it is you once (Attendance \u2192 Start), then chat opens' : 'Chat needs this phone connected to the server','bad');
   _chat.open = null;
@@ -12590,6 +12663,7 @@ function chatHome(){
 }
 function chatClose(){
   clearInterval(_chatPoll); _chat.open = null;
+  setTimeout(function(){ try { chatBadge(); } catch(e){} }, 50);
   var w = document.getElementById('chatWrap'); if(w) w.classList.remove('on');
   chatRefreshBadge();
 }
@@ -13315,7 +13389,10 @@ function drawMore(){
       '<div class="grow"><div class="ttl">'+r[1]+'</div>'+
       (r[2] ? '<div class="meta">'+r[2]+'</div>' : '')+'</div>'+
       '<div style="color:var(--ink-3)">\u203A</div></div></div>';
-  }).join('');
+  }).join('') +
+    '<div style="text-align:center;color:var(--ink-3);font-size:12px;padding:14px 0 4px">'+
+    'Paragon Business App \u00b7 Version ' + APP_VERSION +
+    (sharingOn() ? ' \u00b7 <span style="color:var(--green)">connected</span>' : ' \u00b7 not connected') + '</div>';
 }
 
 function listClients(){
@@ -13353,6 +13430,12 @@ function editClient(id){
       '<input id="clMap" value="'+esc(c?c.map||'':'')+'" placeholder="Paste the Share link from Google Maps" autocapitalize="off"></div>'+
     '<div class="field"><label>Phone</label>'+
       '<input id="clPhone" type="tel" value="'+esc(c?c.phone:'')+'"></div>'+
+    '<div class="field"><label>Concern person</label>'+
+      '<input id="clWho" value="'+esc(c?c.who||'':'')+'" placeholder="Mr. Asif"></div>'+
+    '<div class="field"><label>WhatsApp number</label>'+
+      '<input id="clWa" type="tel" value="'+esc(c?c.wa||'':'')+'" placeholder="0300 1234567"></div>'+
+    '<div class="field"><label>Email</label>'+
+      '<input id="clEmail" type="email" value="'+esc(c?c.email||'':'')+'" autocapitalize="off" placeholder="accounts@client.com"></div>'+
     '<div class="field"><label>Which company</label><select id="clBrand">'+
       Object.keys(BRANDS).map(function(k){
         return '<option value="'+k+'"'+((c?c.brand:'paragon')===k?' selected':'')+'>'+
@@ -13376,6 +13459,9 @@ function saveClient(id){
   c.name = name; c.place = $('clPlace').value.trim();
   c.addr = $('clAddr').value.trim(); c.map = $('clMap').value.trim();
   c.phone = $('clPhone').value.trim();
+  c.who = $('clWho') ? $('clWho').value.trim() : (c.who||'');
+  c.wa = $('clWa') ? $('clWa').value.trim() : (c.wa||'');
+  c.email = $('clEmail') ? $('clEmail').value.trim() : (c.email||'');
   c.brand = $('clBrand').value;
   c.deal = $('clDeal').value;
   c._at = now();
@@ -13499,8 +13585,30 @@ function editUser(id){
     '<div class="field"><label>Active</label><select id="usActive">'+
       '<option value="1"'+(!u||u.active?' selected':'')+'>yes</option>'+
       '<option value="">no \u2014 cannot sign in</option></select></div>',
-    [{t:'Back',cls:'ghost',f:'listUsers()'},
-     {t:'Save',cls:'',f:'saveUser(' + (u?"'"+u.id+"'":'null') + ')'}]);
+    [{t:'Back',cls:'ghost',f:'listUsers()'}]
+      .concat(u && u.id !== ME.id ? [{t:'Delete',cls:'danger',f:"deleteUser('"+u.id+"')"}] : [])
+      .concat([{t:'Save',cls:'',f:'saveUser(' + (u?"'"+u.id+"'":'null') + ')'}]));
+}
+
+/* The admin removes a person for good. An admin cannot be deleted by a
+   non-admin, the last admin cannot be removed, and you cannot delete
+   yourself. What the person did (attendance, salary, jobs) stays on record
+   under their name; only their account and sign-in go. */
+function deleteUser(id){
+  var u = byId(DB.users, id);
+  if(!u) return;
+  if(u.id === ME.id) return toast('You cannot delete your own account','bad');
+  if(!userEditAllowed(u, u.role)) return toast('Only an admin can delete an admin','bad');
+  if(u.role === 'admin' && DB.users.filter(function(x){ return x.role==='admin' && x.active && x.id!==id; }).length === 0)
+    return toast('This is the last admin \u2014 make someone else an admin first','bad');
+  if(!confirm('Delete ' + u.name + ' for good? Their record stays under their name, but the account and sign-in are removed.')) return;
+  DB.users = DB.users.filter(function(x){ return x.id !== id; });
+  DB.deletedUsers = DB.deletedUsers || {};
+  DB.deletedUsers[id] = now();               /* so the server drops it on every phone */
+  logIt('user','Deleted '+u.name, ROLES[u.role] ? ROLES[u.role].label : '');
+  save(); listUsers(); draw();
+  if(sharingOn()) syncSoon();
+  toast(u.name + ' deleted','good');
 }
 
 function saveUser(id){
@@ -13739,7 +13847,7 @@ function syncNow(quiet){
     mine[p[1]] = o;
   });
 
-  bridge({ action:'push', records: mine })
+  bridge({ action:'push', records: mine, deletedUsers: DB.deletedUsers || {} })
     .then(function(d){
       if(!d || !d.ok) throw new Error((d && d.msg) || 'refused');
       return bridge({ action:'pull' });
@@ -13811,7 +13919,8 @@ function joinServer(){
     'server\u2019s secret.</div>'+
     '<div class="field"><label>Server address</label>'+
       '<input id="jnUrl" placeholder="http://139.180.219.41:8080/" '+
-      'autocapitalize="off" value="'+esc(DB.share.url||'')+'"></div>'+
+      'autocapitalize="off" value="'+esc(DB.share.url||DEFAULT_SERVER)+'"></div>'+
+      '<div class="help">Pehle se bhara hai \u2014 sirf niche admin ka user name aur password daalein.</div>'+
     '<div class="field"><label>Admin user name</label>'+
       '<input id="jnUser" autocapitalize="off" autocomplete="off"></div>'+
     '<div class="field"><label>Admin password</label>'+
