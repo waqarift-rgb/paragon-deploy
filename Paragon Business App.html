@@ -155,6 +155,41 @@ textarea{resize:vertical;min-height:80px}
  display:flex;align-items:center;gap:10px}
 #mhead .h{font-size:16px;font-weight:600;flex:1}
 #mbody{padding:15px 16px;overflow:auto;flex:1}
+.pf-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.pf-av{width:52px;height:52px;border-radius:50%;color:#fff;font-weight:700;font-size:19px;display:flex;align-items:center;justify-content:center;flex:none}
+.pf-name{font-size:17px;font-weight:700;color:#12395E}.pf-role{font-size:12.5px;color:#667}
+.pf-figs{display:flex;gap:9px;margin-bottom:16px}
+.pf-fig{flex:1;background:#F5F8FB;border-radius:10px;padding:12px 6px;text-align:center}
+.pf-fig .n{font-size:22px;font-weight:800;color:#12395E}.pf-fig .l{font-size:11px;color:#667;margin-top:2px}
+.pf-bar{margin-bottom:11px}
+.pf-bl{display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px}.pf-bl b{color:#12395E}
+.pf-track{height:9px;background:#EDF1F5;border-radius:5px;overflow:hidden}
+.pf-fill{height:100%;border-radius:5px;transition:width .5s}
+.pf-note{margin-top:14px;padding:11px 13px;border-radius:9px;font-size:13px;line-height:1.5}
+.pf-note.g{background:#EAF6EE;color:#1A7538}.pf-note.i{background:#EAF2FA;color:#1C4F7F}.pf-note.w{background:#FDF6E9;color:#9A6206}
+.att-card{background:linear-gradient(135deg,#0E7268,#0A5B53);color:#fff;border-radius:14px;padding:15px 17px;margin-bottom:14px;box-shadow:0 3px 10px rgba(14,114,104,.25)}
+.att-top{display:flex;align-items:center;gap:11px;margin-bottom:9px}
+.att-dot{width:13px;height:13px;border-radius:50%;flex:none;box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+.att-state{font-size:16px;font-weight:700}.att-date{font-size:12px;color:rgba(255,255,255,.75)}
+.att-since{font-size:12.5px;color:rgba(255,255,255,.9);background:rgba(255,255,255,.15);padding:3px 10px;border-radius:12px}
+.att-line{font-size:13px;color:rgba(255,255,255,.92);line-height:1.5}
+.att-line b{color:#fff}
+.att-q{font-size:11.5px;color:#FFE1A8;margin-top:6px}
+.att-btn{margin-top:11px}
+.att-btn .btn{width:100%;background:#fff;color:#0A5B53;font-weight:700}
+.att-btn .btn.green{background:#fff;color:#0A5B53}
+.ci-where{display:flex;gap:10px}
+.ci-opt{flex:1;border:2px solid var(--line);background:#fff;border-radius:10px;padding:14px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:22px;cursor:pointer}
+.ci-opt span{font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.ci-opt.on{border-color:#1A7538;background:#EAF6EE}
+.ci-photo{border:2px dashed var(--line);border-radius:10px;min-height:120px;display:flex;align-items:center;justify-content:center;color:var(--ink-3);cursor:pointer;overflow:hidden}
+.ci-photo.has{border-style:solid;padding:0}
+.ci-photo img{width:100%;max-height:200px;object-fit:cover;display:block}
+.ci-loc{font-size:12.5px;color:var(--ink-3);margin-top:6px}
+.eye-wrap{position:relative}
+.eye-wrap input{width:100%;padding-right:40px}
+.eye-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:17px;opacity:.7;user-select:none}
+.eye-btn:active{opacity:1}
 .as-row{display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
 .as-t{font-size:14.5px;font-weight:600}.as-s{font-size:12px;color:var(--ink-3);margin-top:2px}.as-w{font-size:11.5px;color:var(--amber);margin-top:3px}
 .as-sw{position:relative;width:46px;height:26px;flex:none;margin-top:2px}.as-sw input{display:none}
@@ -234,8 +269,10 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
     <div class="field"><label>User name</label>
       <input id="gUser" autocapitalize="off" autocomplete="username"></div>
     <div class="field"><label>Password</label>
-      <input id="gPass" type="password" autocomplete="current-password"
-             onkeydown="if(event.key==='Enter')doSignin()"></div>
+      <div class="eye-wrap">
+        <input id="gPass" type="password" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')doSignin()">
+        <span class="eye-btn" onclick="eyeToggle('gPass', this)">👁️</span></div></div>
     <div id="gErr" style="color:var(--red);font-size:13px;margin-bottom:12px"></div>
     <button class="btn" onclick="doSignin()">Sign in</button>
     <!-- A phone not yet connected is shown the way to connect, not the
@@ -474,6 +511,19 @@ function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
 var APP_VERSION = '1.5';
 var DEFAULT_SERVER = 'http://139.180.219.41:8080/';
 var DB = {};
+
+/* Password ke aage aankh \u2014 tap par dikhe/chhupe (WhatsApp jaisa). */
+function eyeToggle(id, el){
+  var inp = document.getElementById(id); if(!inp) return;
+  var show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  el.textContent = show ? '\u{1F648}' : '\u{1F441}\uFE0F';
+}
+function eyeWrap(inputHtml, id){
+  return '<div class="eye-wrap">' + inputHtml +
+    '<span class="eye-btn" onclick="eyeToggle(\'' + id + '\', this)">\u{1F441}\uFE0F</span></div>';
+}
+
 function save(){ sSet(KEY, JSON.stringify(DB)); }
 
 function load(){
@@ -709,9 +759,9 @@ function forceNewPass(){
     '<div class="note w">This account is still on the password it was set up '+
     'with. Choose your own now.</div>'+
     '<div class="field"><label>New password</label>'+
-      '<input type="password" id="np1" autocomplete="new-password"></div>'+
+      eyeWrap('<input type="password" id="np1" autocomplete="new-password">', 'np1')+'</div>'+
     '<div class="field"><label>Type it again</label>'+
-      '<input type="password" id="np2" autocomplete="new-password"></div>',
+      eyeWrap('<input type="password" id="np2" autocomplete="new-password">', 'np2')+'</div>',
     [{t:'Set it',cls:'',f:'setNewPass()'}]);
 }
 
@@ -4886,6 +4936,30 @@ function jobLine(c){
          (m ? ' \u00b7 ' + m.model : '') + ' \u00b7 ' + c.no;
 }
 
+/* ---------- broadcast: admin ka paigham poori team ko ---------- */
+function broadcastBox(){
+  if(ME.role !== 'admin' && ME.role !== 'supervisor') return toast('For the office','bad');
+  modal('Message to the whole team',
+    '<div class="field"><label>Your message</label>'+
+      '<textarea id="bcMsg" rows="4" placeholder="Kal chhutti hai \u2014 sab ko mubarak ho"></textarea></div>'+
+    '<div class="help">Har active member ko notification jayegi (operators chhod kar). '+
+    'Ring aur badge dono aayenge.</div>',
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'},{t:'Send to all',cls:'',f:'broadcastSend()'}]);
+}
+function broadcastSend(){
+  var msg = $('bcMsg').value.trim();
+  if(!msg) return toast('Kuch likhein','bad');
+  var sent = 0;
+  DB.users.forEach(function(u){
+    if(!u.active || u.role === 'operator' || u.id === ME.id) return;
+    tell(u.id, '\u{1F4E2} ' + (ME.name.split(' ')[0]) + ' says', msg, '');
+    sent++;
+  });
+  logIt('broadcast', 'Message to team', msg.slice(0,60));
+  save(); if(sharingOn()) syncSoon();
+  closeModal(); toast('Sent to ' + sent + ' people','good');
+}
+
 /* ---------- complaints ---------- */
 
 function notifyLogged(c){
@@ -5071,6 +5145,37 @@ function sweep(){
     (DB.stock || []).forEach(function(s){ checkLowStock(s.id); });
   } catch(e){}
   drawTabs();
+}
+
+
+
+/* ---------- birthday: us din subah team ko yaad-dahani ---------- */
+function birthdayCheck(){
+  /* Din mein ek dafa: kis ki aaj birthday hai? Sab ko batao (khud us ko chhod kar). */
+  var today = new Date();
+  var mmdd = ('0'+(today.getMonth()+1)).slice(-2) + '-' + ('0'+today.getDate()).slice(-2);
+  var key = 'bday-' + today.toISOString().slice(0,10);
+  DB.saidBday = DB.saidBday || {};
+  DB.users.forEach(function(u){
+    if(!u.active || !u.dob) return;
+    if(u.dob.slice(5) !== mmdd) return;                 /* aaj nahi */
+    if(DB.saidBday[key + '-' + u.id]) return;           /* aaj keh chuke */
+    DB.saidBday[key + '-' + u.id] = 1;
+    /* sab ko batao — us ke ilawa */
+    DB.users.forEach(function(o){
+      if(!o.active || o.role === 'operator' || o.id === u.id) return;
+      tell(o.id, '\u{1F382} Aaj ' + u.name.split(' ')[0] + ' ki salgirah hai',
+           'Team ki taraf se mubarak keh dein!', '');
+    });
+    /* khud us ko bhi */
+    tell(u.id, '\u{1F382} Salgirah Mubarak, ' + u.name.split(' ')[0] + '!',
+         'Poori Paragon team ki taraf se dher saari mubarakbaad.', '');
+  });
+  /* purani yaad-dahani saaf */
+  Object.keys(DB.saidBday).forEach(function(k){
+    if(k.indexOf('bday-' + today.toISOString().slice(0,10)) !== 0) delete DB.saidBday[k];
+  });
+  save();
 }
 
 /* ============================================================
@@ -7644,6 +7749,38 @@ function phoneConfig(){
   } catch(e){}
 }
 
+/* App khula hote hue: server se meri nayi notes le kar phone par foran ring karo.
+   Chat message 15 minute ke background worker ka intezar na kare. */
+var _lastNotePull = 0;
+function pullNotesNow(){
+  if(!sharingOn() || !ME) return;
+  if(Date.now() - _lastNotePull < 8000) return;   /* thodi der mein baar baar nahi */
+  _lastNotePull = Date.now();
+  bridge({ action:'pull' }).then(function(d){
+    if(!d || !d.ok) return;
+    var remote = d.notes || {};
+    DB.notes = DB.notes || [];
+    var have = {}; DB.notes.forEach(function(x){ if(x && x.id) have[x.id] = 1; });
+    var added = false;
+    Object.keys(remote).forEach(function(id){
+      if(!have[id] && remote[id] && typeof remote[id] === 'object'){ DB.notes.push(remote[id]); added = true; }
+    });
+    if(added){
+      save();
+      /* App khula hote hue bhi ek halki beep + buzz \u2014 jaise WhatsApp mein
+         aati hai, taake message foran pata chale. */
+      var chatCame = Object.keys(remote).some(function(id){
+        return remote[id] && String(remote[id].link||'').indexOf('chat:') === 0 && !have[id]; });
+      if(chatCame){
+        try { if(typeof tapTick === 'function'){ tapTick('key'); setTimeout(function(){ tapTick('tap'); }, 90); } } catch(e){}
+        try { if(navigator.vibrate) navigator.vibrate([0,60,40,60]); } catch(e){}
+      }
+      try { phoneNotify(); } catch(e){}
+      draw && draw();
+    }
+  }).catch(function(){});
+}
+
 /* Tapping a notification opens the job it is about, not the home screen. */
 function openFromPhone(link){
   if(!ME || !link) return;
@@ -8100,8 +8237,10 @@ function importBox(kind){
     'models it fits.</div>'+
 
     '<div class="field"><label>1. Get the template</label>'+
-      '<button class="btn ghost sm" onclick="importTemplate(\''+kind+'\')">'+
-      'Download the '+IMPORT_KINDS[kind].label.toLowerCase()+' template</button>'+
+      '<div class="row" style="gap:6px;flex-wrap:wrap">'+
+      '<button class="btn ghost sm" onclick="importTemplate(\''+kind+'\')">\u2B07 CSV template</button>'+
+      '<button class="btn ghost sm" onclick="importTemplateXlsx(\''+kind+'\')">\u2B07 Excel template</button>'+
+      '</div>'+
       '<div class="help">Columns: <b>'+IMPORT_KINDS[kind].cols.join(', ')+'</b>. '+
       'Only <b>'+IMPORT_KINDS[kind].must.join(', ')+'</b> '+
       (IMPORT_KINDS[kind].must.length > 1 ? 'are' : 'is')+' required. '+
@@ -8116,11 +8255,103 @@ function importBox(kind){
     [{t:'Close',cls:'ghost',f:'closeModal()'}]);
 }
 
-function importTemplate(kind){
+function importTemplate(kind){          /* CSV template */
   var k = IMPORT_KINDS[kind];
   function q(s){ s = String(s); return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; }
   var csv = '\uFEFF' + k.cols.map(q).join(',') + '\r\n' + k.example.map(q).join(',') + '\r\n';
   saveText('paragon-' + kind + '-template.csv', csv, 'text/csv');
+}
+function importTemplateXlsx(kind){      /* Excel (.xlsx) template */
+  var k = IMPORT_KINDS[kind];
+  var blob = makeXlsx([k.cols, k.example.map(String)]);
+  saveBlob('paragon-' + kind + '-template.xlsx', blob);
+}
+
+/* A minimal, valid .xlsx from rows of strings \u2014 no library needed.
+   It writes the few parts Excel needs, zipped with stored (no compression). */
+function makeXlsx(rows){
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  var sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  rows.forEach(function(row, r){
+    sheet += '<row r="' + (r+1) + '">';
+    row.forEach(function(cell, c){
+      var ref = String.fromCharCode(65 + c) + (r+1);
+      sheet += '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + esc(cell) + '</t></is></c>';
+    });
+    sheet += '</row>';
+  });
+  sheet += '</sheetData></worksheet>';
+  var files = {
+    '[Content_Types].xml':
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+
+      '<Default Extension="xml" ContentType="application/xml"/>'+
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+    '_rels/.rels':
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+    'xl/workbook.xml':
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'+
+      '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+    'xl/_rels/workbook.xml.rels':
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+    'xl/worksheets/sheet1.xml': sheet
+  };
+  return zipStore(files);
+}
+
+/* A ZIP with stored (uncompressed) entries \u2014 enough for small text files. */
+function zipStore(files){
+  var enc = new TextEncoder();
+  function crc32(bytes){
+    var c, crc = 0xFFFFFFFF;
+    for(var i=0;i<bytes.length;i++){ c = (crc ^ bytes[i]) & 0xFF;
+      for(var k=0;k<8;k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      crc = (crc >>> 8) ^ c; }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  var chunks = [], central = [], offset = 0;
+  function u16(n){ return [n & 255, (n>>8)&255]; }
+  function u32(n){ return [n & 255, (n>>8)&255, (n>>16)&255, (n>>24)&255]; }
+  Object.keys(files).forEach(function(name){
+    var nameB = enc.encode(name), data = enc.encode(files[name]);
+    var crc = crc32(data);
+    var local = [].concat(u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(data.length), u32(data.length), u16(nameB.length), u16(0));
+    chunks.push(new Uint8Array(local), nameB, data);
+    var cen = [].concat(u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(data.length), u32(data.length), u16(nameB.length), u16(0), u16(0), u16(0), u16(0),
+      u32(0), u32(offset));
+    central.push(new Uint8Array(cen), nameB);
+    offset += local.length + nameB.length + data.length;
+  });
+  var cenStart = offset, cenSize = 0;
+  central.forEach(function(c){ cenSize += c.length; });
+  var eocd = [].concat(u32(0x06054b50), u16(0), u16(0),
+    u16(Object.keys(files).length), u16(Object.keys(files).length),
+    u32(cenSize), u32(cenStart), u16(0));
+  var parts = chunks.concat(central); parts.push(new Uint8Array(eocd));
+  return new Blob(parts, { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+function saveBlob(name, blob){
+  if(window.Android && typeof Android.saveBlob === 'function'){
+    var rd = new FileReader();
+    rd.onload = function(){ Android.saveBlob(name, String(rd.result).split(',')[1] || ''); };
+    rd.readAsDataURL(blob); return;
+  }
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast('Downloaded ' + name, 'good');
 }
 
 /* one way to hand a person a file, in a browser or inside the APK */
@@ -8217,6 +8448,211 @@ function doImport(){
     (k === 'clients' ? ' Next: the machines.' : k === 'machines' ? ' Next: the store.' : '') +
     '</div>';
   toast(n + ' imported', 'good');
+}
+
+/* ============================================================
+   CHECK IN / CHECK OUT \u2014 with a photo and a place
+   ============================================================ */
+
+var _ciKind = 'in', _ciPhoto = '', _ciWhere = '', _ciClient = '', _ciLoc = '';
+
+/* The Check In / Check Out button now opens this, instead of firing at once. */
+function attStart(kind){
+  _ciKind = kind; _ciPhoto = ''; _ciWhere = ''; _ciClient = ''; _ciLoc = '';
+  var title = kind === 'in' ? 'Check in' : 'Check out';
+  modal(title,
+    '<div class="ci-body">'+
+      '<div class="field"><label>Where are you?</label>'+
+        '<div class="ci-where">'+
+          '<button type="button" id="ciwPar" class="ci-opt" onclick="ciWhere(\'paragon\')">'+
+            '\U0001F3E2<span>Paragon office</span></button>'+
+          '<button type="button" id="ciwCli" class="ci-opt" onclick="ciWhere(\'client\')">'+
+            '\U0001F4BC<span>Client office</span></button>'+
+        '</div></div>'+
+      '<div id="ciClientWrap" class="field hide"><label>Which client office?</label>'+
+        '<input id="ciClient" placeholder="e.g. Sapphire, Karachi" autocomplete="off">'+
+        '<div class="help">Jis client ke office par hain us ka naam.</div></div>'+
+      '<div class="field"><label>Photo</label>'+
+        '<div id="ciPhotoBox" class="ci-photo" onclick="ciTakePhoto()">'+
+          '<span>\U0001F4F7  Take a photo</span></div>'+
+        '<div class="help">Camera se abhi photo lein \u2014 saboot ke liye.</div></div>'+
+      '<div id="ciLocLine" class="ci-loc">\U0001F4CD Getting your location\u2026</div>'+
+    '</div>',
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'},
+     {t:(kind==='in'?'Submit check-in':'Submit check-out'),cls:'',f:'ciSubmit()'}]);
+  ciGetLoc();
+}
+
+function ciWhere(w){
+  _ciWhere = w;
+  var par = $('ciwPar'), cli = $('ciwCli');
+  if(par) par.classList.toggle('on', w === 'paragon');
+  if(cli) cli.classList.toggle('on', w === 'client');
+  var wrap = $('ciClientWrap'); if(wrap) wrap.classList.toggle('hide', w !== 'client');
+  if(w === 'client'){ var f = $('ciClient'); if(f) setTimeout(function(){ f.focus(); }, 100); }
+}
+
+function ciTakePhoto(){
+  pickPhoto(function(src){
+    _ciPhoto = src;
+    var box = $('ciPhotoBox');
+    if(box){ box.innerHTML = '<img src="' + src + '" alt="">'; box.classList.add('has'); }
+  }, { camera:true });     /* camera, gallery nahi \u2014 abhi ki photo */
+}
+
+function ciGetLoc(){
+  if(!navigator.geolocation){ _ciLoc = ''; var l=$('ciLocLine'); if(l) l.textContent=''; return; }
+  navigator.geolocation.getCurrentPosition(function(pos){
+    _ciLoc = pos.coords.latitude.toFixed(5) + ',' + pos.coords.longitude.toFixed(5);
+    var l = $('ciLocLine'); if(l) l.innerHTML = '\U0001F4CD Location ready';
+  }, function(){
+    _ciLoc = ''; var l = $('ciLocLine'); if(l) l.innerHTML = '\U0001F4CD Location off \u2014 that is okay';
+  }, { enableHighAccuracy:true, timeout:8000, maximumAge:30000 });
+}
+
+function ciSubmit(){
+  if(!_ciWhere) return toast('Batayein aap kahan hain','bad');
+  if(_ciWhere === 'client' && !($('ciClient') && $('ciClient').value.trim()))
+    return toast('Client office ka naam likhein','bad');
+  if(!_ciPhoto) return toast('Camera se photo lein','bad');
+  var placeName = _ciWhere === 'paragon'
+      ? 'Paragon office'
+      : 'Client office \u2014 ' + $('ciClient').value.trim();
+  closeModal();
+  attPress(_ciKind, { where: placeName, photo: _ciPhoto, loc: _ciLoc });
+}
+
+/* ============================================================
+   PERFORMANCE REPORT
+   ============================================================ */
+
+function myPerformance(){ perfReport(ME.id); }
+
+function perfReport(uid){
+  if(uid !== ME.id && ME.role !== 'admin' && ME.role !== 'supervisor')
+    return toast('You can see your own report','bad');
+  var u = byId(DB.users, uid); if(!u) return;
+  var month = today().slice(0, 7);
+  var name = (month.slice(5) === today().slice(5,7)) ? 'this month' : month;
+
+  /* is mahine ki complaints jo is tech ki thin */
+  var mine = DB.complaints.filter(function(c){
+    return c.tech === uid && String(c.opened || '').slice(0,7) === month; });
+  var done = mine.filter(function(c){ return c.status === 'resolved'; });
+  var openNow = openJobs().filter(function(c){ return c.tech === uid; });
+
+  /* kitni jaldi \u2014 open se resolve tak, ghanton mein (kaam ke ghante nahi, saada) */
+  var times = done.filter(function(c){ return c.opened && c.resolved; })
+    .map(function(c){ return (new Date(c.resolved) - new Date(c.opened)) / 3600000; })
+    .filter(function(h){ return h >= 0 && h < 24*30; });
+  var avg = times.length ? Math.round(times.reduce(function(a,b){ return a+b; },0) / times.length) : null;
+  var sameDay = done.filter(function(c){
+    return c.opened && c.resolved && String(c.opened).slice(0,10) === String(c.resolved).slice(0,10); }).length;
+
+  /* parts is mahine lagaye */
+  var fitted = DB.parts.filter(function(p){
+    return p.by === uid && q(p,'installed') > 0 &&
+      String(p.at || '').slice(0,7) === month; })
+    .reduce(function(a,p){ return a + q(p,'installed'); }, 0);
+
+  perfDraw(u, {
+    month: name, jobs: mine.length, done: done.length, openNow: openNow.length,
+    avg: avg, sameDay: sameDay, fitted: fitted, doneList: done
+  });
+}
+
+function perfBar(label, value, max, colour){
+  var pct = max ? Math.min(100, Math.round(value / max * 100)) : 0;
+  return '<div class="pf-bar"><div class="pf-bl"><span>' + label + '</span><b>' + value + '</b></div>'+
+    '<div class="pf-track"><div class="pf-fill" style="width:' + pct + '%;background:' + colour + '"></div></div></div>';
+}
+
+function perfDraw(u, s){
+  var rate = s.jobs ? Math.round(s.done / s.jobs * 100) : 0;
+  var body =
+    '<div class="pf-head">'+
+      '<div class="pf-av" style="background:' + avatarColour(u.name) + '">' + initials(u.name) + '</div>'+
+      '<div><div class="pf-name">' + esc(u.name) + '</div>'+
+      '<div class="pf-role">' + esc((ROLES[u.role]||{}).label || '') + ' \u00b7 ' + s.month + '</div></div>'+
+    '</div>'+
+    /* teen bare figure */
+    '<div class="pf-figs">'+
+      '<div class="pf-fig"><div class="n">' + s.done + '</div><div class="l">Resolved</div></div>'+
+      '<div class="pf-fig"><div class="n" style="color:#1A7538">' + rate + '%</div><div class="l">Success</div></div>'+
+      '<div class="pf-fig"><div class="n">' + (s.avg != null ? s.avg + 'h' : '\u2014') + '</div><div class="l">Avg time</div></div>'+
+    '</div>'+
+    /* bars */
+    '<div class="pf-bars">'+
+      perfBar('Jobs taken', s.jobs, Math.max(s.jobs, 1), '#2B8ABA')+
+      perfBar('Resolved', s.done, Math.max(s.jobs, 1), '#1A7538')+
+      perfBar('Same-day fixes', s.sameDay, Math.max(s.done, 1), '#0E7268')+
+      perfBar('Still open', s.openNow, Math.max(s.jobs, 1), '#C8860B')+
+      perfBar('Parts fitted', s.fitted, Math.max(s.fitted, 1), '#6E51A8')+
+    '</div>'+
+    /* hausla afzai / mashwara */
+    '<div class="pf-note ' + (rate >= 80 ? 'g' : rate >= 50 ? 'i' : 'w') + '">'+
+      (s.jobs === 0 ? 'Is mahine abhi koi job nahi \u2014 naya mahina, naya start.'
+        : rate >= 80 ? '\u{1F44F} Zabardast! ' + rate + '% jobs mukammal. Aise hi chalte rahein.'
+        : rate >= 50 ? 'Achha kaam \u2014 ' + s.openNow + ' jobs abhi khuli hain, unhe mukammal karein.'
+        : s.openNow + ' jobs khuli hain \u2014 inhe pehle nimta lein taake success barhe.')+
+    '</div>';
+
+  modal('Performance \u2014 ' + s.month, body, [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+}
+
+/* ============================================================
+   TAP AND TYPING FEEDBACK
+   ============================================================ */
+
+var _sndOn = (function(){ try { return sGet('paragon-sound') !== 'off'; } catch(e){ return true; } })();
+var _audioCtx = null;
+
+function soundOn(){ return _sndOn; }
+function soundToggle(){
+  _sndOn = !_sndOn;
+  try { sSet('paragon-sound', _sndOn ? 'on' : 'off'); } catch(e){}
+  if(_sndOn) tapTick();
+  if(typeof drawMore === 'function' && PAGE === 'more') drawMore();
+  toast(_sndOn ? 'Sound on' : 'Sound off', 'good');
+}
+
+/* a short, soft tick \u2014 like a keyboard key */
+function tapTick(kind){
+  if(!_sndOn) return;
+  try {
+    _audioCtx = _audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if(_audioCtx.state === 'suspended') _audioCtx.resume();
+    var o = _audioCtx.createOscillator(), g = _audioCtx.createGain(), now = _audioCtx.currentTime;
+    o.type = 'sine';
+    o.frequency.value = kind === 'key' ? 620 : 420;      /* type thoda ooncha, tap neecha */
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(kind === 'key' ? 0.05 : 0.09, now + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+    o.connect(g); g.connect(_audioCtx.destination);
+    o.start(now); o.stop(now + 0.07);
+  } catch(e){}
+}
+function tapBuzz(ms){
+  if(!_sndOn) return;
+  try { if(navigator.vibrate) navigator.vibrate(ms || 8); } catch(e){}
+}
+
+/* one place that hears every tap and keypress */
+function soundWire(){
+  /* a tap on anything you can press */
+  document.addEventListener('click', function(e){
+    var t = e.target;
+    if(t.closest && t.closest('button, .btn, .tap, .card.tap, .db-act, .g, .row.tap, .ci-opt, a, [onclick]')){
+      tapTick('tap'); tapBuzz(8);
+    }
+  }, true);
+  /* a tick as you type */
+  document.addEventListener('input', function(e){
+    var t = e.target;
+    if(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && t.type !== 'range' && t.type !== 'checkbox'){
+      tapTick('key'); tapBuzz(5);
+    }
+  }, true);
 }
 
 /* ============================================================
@@ -8483,34 +8919,44 @@ function drawAttCard(){
   var line, btn;
   if(!t.in){
     line = 'Not checked in yet';
-    btn = '<button class="btn green" onclick="attPress(\'in\')">Check In</button>';
+    btn = '<button class="btn green" onclick="attStart(\'in\')">Check In</button>';
   } else if(!t.out){
     line = 'In at <b>' + hhmm(t.in) + '</b> \u00b7 ' +
       (t.late ? '<span style="color:var(--red)">late</span>'
               : '<span style="color:var(--green)">on time</span>');
-    btn = '<button class="btn" onclick="attPress(\'out\')">Check Out</button>';
+    btn = '<button class="btn" onclick="attStart(\'out\')">Check Out</button>';
   } else {
     line = 'In <b>' + hhmm(t.in) + '</b> \u00b7 Out <b>' + hhmm(t.out) + '</b>' +
       (t.late ? ' \u00b7 <span style="color:var(--red)">late</span>' : '') +
       (t.ot_min ? ' \u00b7 ' + t.ot_min + ' min after 6' : '');
     btn = '';
   }
-  el.innerHTML = '<div class="card" style="padding:12px 14px">'+
-    '<div class="row" style="align-items:center"><div class="grow">'+
-      '<div class="ttl">Attendance \u00b7 ' + esc(dmy(today())) + '</div>'+
-      '<div class="meta">' + line + '</div>'+
-      (queued ? '<div class="meta" style="color:var(--amber)">Saved on this phone, '+
-        'will be sent when there is signal</div>' : '')+
-    '</div>' + btn + '</div></div>';
+  var state = !t.in ? 'out' : !t.out ? 'in' : 'done';
+  var dot = state === 'in' ? '#1A7538' : state === 'done' ? '#889' : '#C8860B';
+  var label = state === 'in' ? 'On duty' : state === 'done' ? 'Day complete' : 'Not checked in';
+  el.innerHTML = '<div class="att-card">'+
+    '<div class="att-top">'+
+      '<div class="att-dot" style="background:' + dot + '"></div>'+
+      '<div class="grow"><div class="att-state">' + label + '</div>'+
+      '<div class="att-date">' + esc(dmy(today())) + '</div></div>'+
+      (state === 'in' ? '<div class="att-since">since ' + hhmm(t.in) + '</div>' : '')+
+    '</div>'+
+    '<div class="att-line">' + line + '</div>'+
+    (queued ? '<div class="att-q">\u23F3 Saved on this phone \u2014 will send when online</div>' : '')+
+    (btn ? '<div class="att-btn">' + btn + '</div>' : '')+
+  '</div>';
 }
 
 /* The press. The location is taken quietly; the time the server keeps is its
    own, so a phone's clock cannot move it. With no signal the press is kept
    and sent later \u2014 and the server marks it so, for the admin to see. */
-function attPress(kind){
+function attPress(kind, extra){
+  extra = extra || {};
   var stamp = new Date();
   var send = function(place){
-    var body = { action:kind, time: isoLocal(stamp), place: place || '' };
+    var body = { action:kind, time: isoLocal(stamp),
+                 place: extra.where || place || '',
+                 photo: extra.photo || '', loc: extra.loc || (place||'') };
     hrCall(body).then(function(d){
       if(d && d.ok){
         DB.attToday = Object.assign({ day: (d.rec && d.rec.day) || today() }, d.rec || {});
@@ -8529,6 +8975,7 @@ function attPress(kind){
       toast('No signal \u2014 saved on this phone, it will be sent','good');
     });
   };
+  if(extra.where !== undefined){ send(extra.loc || ''); return; }   /* naya rasta: sab pehle mil gaya */
   if(navigator.geolocation){
     var done = false;
     var go = function(p){ if(done) return; done = true; send(p); };
@@ -11606,9 +12053,10 @@ function techDash(){
     [h.consumable, 'Consumables', '', "dashParts('Consumables', DB.parts.filter(function(p){ return p.by===ME.id && holding(p)>0 && kindOf(p)==='consumable'; }))"],
     [h.tool, 'Tools', '', "dashParts('Tools', DB.parts.filter(function(p){ return p.by===ME.id && holding(p)>0 && kindOf(p)==='tool'; }))"]]), 'var(--db-teal)');
   out += sec('Shortcuts', null, '<div class="db-grid">'+
+    '<div class="g" onclick="myPerformance()"><div class="ic" style="background:#EAF6EE;color:#1A7538">\u{1F4C8}</div><div><div class="a">My performance</div><div class="b">This month</div></div></div>'+
     '<div class="g" onclick="go(\'jobs\')"><div class="ic" style="background:var(--db-purpb);color:var(--db-purp)">+</div><div><div class="a">Request part</div><div class="b">From a job</div></div></div>'+
     '<div class="g" onclick="dashOwed(\'To return\', owedRows(ME.id))"><div class="ic" style="background:var(--db-warnb);color:var(--db-warn)">\u21A9</div><div><div class="a">Return part</div><div class="b">' + owed.length + ' owed</div></div></div>'+
-    (t.in && !t.out ? '<div class="g" onclick="attPress(\'out\')"><div class="ic" style="background:var(--db-tealb);color:var(--db-teal)">\u23FB</div><div><div class="a">Check out</div><div class="b">End of the day</div></div></div>' : '')+
+    (t.in && !t.out ? '<div class="g" onclick="attStart(\'out\')"><div class="ic" style="background:var(--db-tealb);color:var(--db-teal)">\u23FB</div><div><div class="a">Check out</div><div class="b">End of the day</div></div></div>' : '')+
     '<div class="g" onclick="location.href=\'tel:' + esc((DB.company && DB.company.phone) || '02134536010').replace(/[^0-9+]/g,'') + '\'"><div class="ic" style="background:var(--db-coolb);color:var(--db-cool)">\u260E</div><div><div class="a">Call office</div><div class="b">' + esc((DB.company && DB.company.phone) || '021-34536010') + '</div></div></div></div>', 'var(--db-teal)');
   return '<div class="db-body">' + out + '</div>';
 }
@@ -12466,7 +12914,24 @@ function voiceRecord(done){
       if($('recTime')) $('recTime').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2,'0');
       if(s >= 180) voiceStop();
     }, 500);
-  }).catch(function(){ toast('The microphone was not allowed','bad'); });
+  }).catch(function(err){
+    /* Saaf batao kya masla hai, warna sirf "not allowed" uljhata hai. */
+    var name = err && err.name ? err.name : '';
+    if(name === 'NotAllowedError' || name === 'SecurityError'){
+      modal('Mic ki ijazat nahi',
+        '<div class="note i">Voice note record karne ke liye mic ki ijazat chahiye.</div>'+
+        '<ul style="font-size:13px;line-height:1.7">'+
+        '<li><b>App (phone) par:</b> Phone Settings \u2192 Apps \u2192 Paragon \u2192 Permissions \u2192 <b>Microphone</b> ON karein. Phir app dobara kholein.</li>'+
+        '<li><b>Browser par:</b> Address bar ke taala/\u24D8 par tap \u2192 Microphone <b>Allow</b>.</li>'+
+        '<li>Ya <b>WhatsApp mein voice note</b> record kar ke, yahan <b>file se</b> bhej dein.</li>'+
+        '</ul>',
+        [{t:'Theek hai',cls:'',f:'closeModal()'}]);
+    } else if(name === 'NotFoundError'){
+      toast('Is phone par mic nahi mila','bad');
+    } else {
+      toast('Record nahi ho saka \u2014 WhatsApp se record kar ke file se bhejein','bad');
+    }
+  });
 }
 function voiceStop(){ if(_rec && _rec.state !== 'inactive') _rec.stop(); }
 function voiceCancel(){ if(_rec && _rec.state !== 'inactive'){ _rec.onstop = function(){ clearInterval(_recTimer); }; _rec.stop(); } closeModal(); }
@@ -12633,12 +13098,15 @@ function chatRefreshBadge(){
     if(d.flags){ _chatSwitchedOff = !d.flags.chat_on; try { locFlags(d.flags); } catch(e){} }
     chatBadge();
     if(document.getElementById('chatWrap') && document.getElementById('chatWrap').classList.contains('on') && !_chat.open) chatDrawList();
+    /* app khula hai to nayi chat notes foran laao aur ring karo \u2014 15 minute wale
+       background worker ka intezar na ho */
+    try { pullNotesNow(); } catch(e){}
   }).catch(function(){});
 }
 function chatStart(){
   chatBadge();
   clearInterval(_chatBadgePoll);
-  _chatBadgePoll = setInterval(function(){ if(!document.hidden) chatRefreshBadge(); }, 30000);
+  _chatBadgePoll = setInterval(function(){ if(!document.hidden) chatRefreshBadge(); }, 12000);
   setTimeout(chatRefreshBadge, 3000);
 }
 document.addEventListener('visibilitychange', function(){
@@ -13300,10 +13768,13 @@ function locOpen(lat, lng, name){
    ============================================================ */
 
 function drawMore(){
-  var rows = [
-    ['\u{1F3E2}','Clients', DB.clients.length + ' on record', "listClients()"],
-    ['\u{1F5A8}','Machines', DB.machines.length + ' on record', "listMachines()"]
-  ];
+  var rows = [];
+  /* Client list aur machine list sirf office/admin ko \u2014 technician aur
+     store manager ko poori list nahi (wo apni job par machine dekh lete hain). */
+  if(can('clients') || ME.role === 'admin' || ME.role === 'supervisor'){
+    rows.push(['\u{1F3E2}','Clients', DB.clients.length + ' on record', "listClients()"]);
+    rows.push(['\u{1F5A8}','Machines', DB.machines.length + ' on record', "listMachines()"]);
+  }
   if(can('users'))
     rows.push(['\u{1F465}','People', DB.users.length + ' users', "listUsers()"]);
   if(canTasks())
@@ -13356,6 +13827,8 @@ function drawMore(){
                : 'OFF \u00b7 choose a provider and switch it on when ready', "aiSettingsBox()"]);
   if(can('settings'))
     rows.push(['\u{1F3A8}','Dashboard colours','When an item turns amber, then red', "agesBox()"]);
+  if(ME.role === 'admin' || ME.role === 'supervisor')
+    rows.push(['\u{1F4E2}','Message the team','Send a note to everyone at once', "broadcastBox()"]);
   if(ME.role === 'admin')
     rows.push(['\u2699\uFE0F','Admin Settings','Chat, location and other switches \u2014 only you', "adminSettingsBox()"]);
   if(ME.role === 'admin' && sharingOn())
@@ -13371,7 +13844,7 @@ function drawMore(){
   if(sharingOn())
     rows.push(['\u{1F552}','Attendance', can('attendance.all') ? 'Everyone, by month \u00b7 corrections \u00b7 holidays'
                : 'Your own days, by month', "attendanceBox()"]);
-  if(can('complaint.add'))
+  if(ME.role === 'admin')
     rows.push(['\u{1F4E5}','Import from Excel',
                'Clients, machines and the store, in one go', "importBox('clients')"]);
   rows.push(['\u{1F4E1}','Waiting to be sent', (function(){
@@ -13379,6 +13852,9 @@ function drawMore(){
     var n = unsent();
     return n ? n + ' change(s) not sent yet' : 'Everything has been sent';
   })(), "unsentList()"]);
+  if(sharingOn() && ME.role !== 'operator')
+    rows.push(['\u{1F4C8}','My performance', 'Your jobs and speed this month', "myPerformance()"]);
+  rows.push(['\u{1F50A}', 'Sounds', soundOn() ? 'On \u2014 taps and typing tick' : 'Off \u2014 silent', "soundToggle()"]);
   rows.push(['\u{1F4BE}','Backup', 'Download everything on this device', "backup()"]);
   rows.push(['\u{1F511}','My password', esc(ME.name), "forceNewPass()"]);
   rows.push(['\u{1F6AA}','Sign out', '', "signOut()"]);
@@ -13579,6 +14055,9 @@ function editUser(id){
     '<div class="field"><label>Phone / WhatsApp</label>'+
       '<input id="usPhone" type="tel" value="'+esc(u?u.phone||'':'')+'" placeholder="0300 1234567">'+
       '<div class="help">Shown to the office on this person\u2019s jobs, and to technicians for the office.</div></div>'+
+    '<div class="field"><label>Birthday (optional)</label>'+
+      '<input id="usDob" type="date" value="'+esc(u?u.dob||'':'')+'">'+
+      '<div class="help">Us din subah team ko yaad-dahani jati hai \u2014 mubarak keh dein.</div></div>'+
     '<div class="field"><label>'+(u?'New password':'Starting password')+'</label>'+
       '<input id="usPass" type="text" placeholder="'+(u?'leave blank to keep':'')+'">'+
       '<div class="help">They are asked to change it when they first sign in.</div></div>'+
@@ -13631,6 +14110,7 @@ function saveUser(id){
   if($('usPhone') && !validPhone($('usPhone').value)) return toast('A phone number has 10 or 11 digits','bad');
   u.name = name; u.email = email; u.role = $('usRole').value;
   if($('usPhone')) u.phone = $('usPhone').value.trim();
+  if($('usDob')) u.dob = $('usDob').value;
   u.active = !!$('usActive').value;
   if(pass){ setPass(u, pass); u.mustChange = true; }
   u._at = now();
@@ -13721,7 +14201,7 @@ function shareUnlock(){
     '<div class="field"><label>Admin user name</label>'+
       '<input id="ulUser" autocapitalize="off" autocomplete="off"></div>'+
     '<div class="field"><label>Admin password</label>'+
-      '<input id="ulPass" type="password" autocomplete="off"></div>',
+      eyeWrap('<input id="ulPass" type="password" autocomplete="off">', 'ulPass')+'</div>',
     [{t:'Close',cls:'ghost',f:'closeModal()'},
      {t:'Sync now',cls:'ghost',f:'closeModal();syncNow()'},
      {t:'Unlock',cls:'',f:'doShareUnlock()'}]);
@@ -13997,6 +14477,7 @@ function startApp(){
   go('home');
   watchNet();
   try { phoneConfig(); phoneNotify(); } catch(e){}
+  try { birthdayCheck(); } catch(e){}
   try { pushLinks(); if(DB.pushOn) pushCfg(); } catch(e){}
   try { attRefresh(); attFlush(); aiRefresh(); mdSync(); chatStart(); } catch(e){}
   setTimeout(sweep, 1500);   /* what is overdue, what is low, who to call */
@@ -14015,6 +14496,7 @@ load();
   if(u && u.active){
     ME = u;
     document.addEventListener('DOMContentLoaded', resumeSession);
+    document.addEventListener('DOMContentLoaded', function(){ try { soundWire(); } catch(e){} });
     if(document.readyState !== 'loading') resumeSession();
   }
 })();

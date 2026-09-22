@@ -2176,6 +2176,8 @@ def att_in(cid, req, u):
             return {"ok": True, "already": True, "rec": _classify(have, d["policy"])}
         rec = have or {"id": rid, "user": u["id"], "day": day}
         rec.update({"in": when, "inPlace": str(req.get("place") or ""),
+                    "inLoc": str(req.get("loc") or ""),
+                    "inPhoto": str(req.get("photo") or "")[:400000],
                     "inQueued": queued, "status": "present"})
         d["attendance"][rid] = rec
         hr_save(cid, d)
@@ -2195,6 +2197,8 @@ def att_out(cid, req, u):
         if not rec or not rec.get("in"):
             return {"ok": False, "msg": "There is no check-in today to check out from."}
         rec.update({"out": when, "outPlace": str(req.get("place") or ""),
+                    "outLoc": str(req.get("loc") or ""),
+                    "outPhoto": str(req.get("photo") or "")[:400000],
                     "outQueued": queued})
         hr_save(cid, d)
         return {"ok": True, "rec": _classify(rec, d["policy"])}
