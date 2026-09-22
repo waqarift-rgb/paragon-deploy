@@ -92,7 +92,7 @@ def _data_path(cid):
 # agree, or something made on one phone never reaches the next.
 KINDS = ("invoices", "clients", "items", "users", "parts", "stock", "buys",
          "scrap", "quotes", "calls", "bills", "contracts", "models", "tasks",
-         "notes", "goals", "habits")
+         "notes", "goals", "habits", "visits", "rights")
 
 
 def _blank():
@@ -172,6 +172,10 @@ def store_push(cid, req):
     with _store_lock:
         d = store_load(cid)
         for kind in KINDS:
+            # Rights are set by an admin through a signed-in session, never by
+            # a phone's ordinary sync \u2014 or any phone could grant itself anything.
+            if kind == "rights" and not req.get("_trusted"):
+                continue
             for rid, rec in (sent.get(kind) or {}).items():
                 if not isinstance(rec, dict):
                     continue
@@ -1949,6 +1953,47 @@ def store_join(cid, req, ip):
 
 
 # ================================================================
+#  RIGHTS
+#  ----------------------------------------------------------------
+#  Who may do what. Each role starts with the defaults below; the
+#  admin can change them for a role, or give or take a right from one
+#  person. The phones follow the same list, and so does this server,
+#  so a right taken away stops working at once, whatever a phone shows.
+#  An admin always has every right \u2014 nobody can lock the firm out.
+# ================================================================
+
+PERM_DEFAULTS = {
+    "users": ["admin"], "settings": ["admin"],
+    "stock.edit": ["admin", "store"], "stock.see": ["admin", "supervisor", "store"],
+    "complaint.add": ["admin", "supervisor", "store"], "complaint.assign": ["admin", "supervisor", "store"],
+    "complaint.all": ["admin", "supervisor", "store"],
+    "part.approve": ["admin", "supervisor", "store"], "part.issue": ["admin", "store"],
+    "reports": ["admin", "supervisor", "store"], "jobs": ["admin", "supervisor", "store", "tech"],
+    "fleet": ["admin", "supervisor", "store"], "quotes": ["admin", "supervisor"],
+    "tasks": ["admin", "supervisor"], "attendance.all": ["admin"], "salary": ["admin"],
+    "money": ["admin"], "collect": ["admin", "supervisor", "tech"], "delivery": ["admin", "store"],
+    "manuals": ["admin"],
+}
+
+
+def allowed(cid, u, what):
+    if not u:
+        return False
+    if u.get("role") == "admin":
+        return True
+    recs = store_load(cid).get("rights", {})
+    r = recs.get("role:" + str(u.get("role") or ""))
+    base = (what in (r.get("perms") or [])) if isinstance(r, dict) else (u.get("role") in PERM_DEFAULTS.get(what, []))
+    ur = recs.get("user:" + str(u.get("id") or ""))
+    if isinstance(ur, dict):
+        if what in (ur.get("allow") or []):
+            return True
+        if what in (ur.get("deny") or []):
+            return False
+    return base
+
+
+# ================================================================
 #  ATTENDANCE
 #  ----------------------------------------------------------------
 #  The owner's rules, confirmed:
@@ -2155,7 +2200,7 @@ def att_month(cid, req, u):
     """Every day of a month, for one person or, for an admin, everyone.
     A working day with nothing recorded is absent \u2014 decided here, not
     left as a gap."""
-    admin = u.get("role") == "admin"
+    admin = allowed(cid, u, "attendance.all")
     month = str(req.get("month") or pk_now().strftime("%Y-%m"))[:7]
     who = req.get("user") if admin and req.get("user") else (None if admin else u["id"])
     d = hr_load(cid)
@@ -2167,7 +2212,7 @@ def att_month(cid, req, u):
     nxt = _dt.date(y + (m == 12), m % 12 + 1, 1)
     today = pk_now().date()
     users = [x for x in store_load(cid).get("users", {}).values()
-             if isinstance(x, dict) and x.get("active", True)
+             if isinstance(x, dict) and x.get("active", True) and x.get("role") != "operator"
              and (who is None or x.get("id") == who)]
     people = []
     for p in users:
@@ -2207,7 +2252,7 @@ def att_fix(cid, req, u):
     """An admin correcting a day. The reason is required, and what it said
     before is kept, because a payroll dispute always comes down to "what did
     it say before?"."""
-    if u.get("role") != "admin":
+    if not allowed(cid, u, "attendance.all"):
         return {"ok": False, "msg": "Only an admin corrects attendance."}
     note = str(req.get("note") or "").strip()
     if not note:
@@ -2243,7 +2288,7 @@ def att_fix(cid, req, u):
 
 
 def hol_set(cid, req, u):
-    if u.get("role") != "admin":
+    if not allowed(cid, u, "attendance.all"):
         return {"ok": False, "msg": "Only an admin sets holidays."}
     day = str(req.get("day") or "")[:10]
     name = str(req.get("name") or "").strip()
@@ -2267,15 +2312,55 @@ def hr_route(cid, req, ip):
     u = _session(cid, req)
     if not u:
         return {"ok": False, "signin": True, "msg": "Sign in again to use attendance."}
+    if act != "presence.bye":
+        presence_touch(u["id"])
     if act == "in":      return att_in(cid, req, u)
     if act == "out":     return att_out(cid, req, u)
     if act == "month":   return att_month(cid, req, u)
     if act == "fix":     return att_fix(cid, req, u)
     if act == "holiday": return hol_set(cid, req, u)
     if act == "whoami":  return {"ok": True, "user": u["id"], "role": u.get("role")}
+    if act == "rights.set":
+        if u.get("role") != "admin":
+            return {"ok": False, "msg": "Only an admin sets rights."}
+        rec = req.get("rec") or {}
+        rid = str(rec.get("id") or "")
+        if not (rid.startswith("role:") or rid.startswith("user:")) or rid == "role:admin":
+            return {"ok": False, "msg": "That is not a role or a person."}
+        clean = {"id": rid, "perms": [x for x in (rec.get("perms") or []) if x in PERM_DEFAULTS],
+                 "allow": [x for x in (rec.get("allow") or []) if x in PERM_DEFAULTS],
+                 "deny": [x for x in (rec.get("deny") or []) if x in PERM_DEFAULTS],
+                 "by": u.get("name"), "_at": pk_now().isoformat(timespec="seconds")}
+        if rid.startswith("user:"):
+            target = _user_by_id(cid, rid[5:])
+            if not target or target.get("role") == "admin":
+                return {"ok": False, "msg": "An admin already has every right."}
+            clean.pop("perms")
+        else:
+            clean.pop("allow"); clean.pop("deny")
+        store_push(cid, {"records": {"rights": {rid: clean}}, "_trusted": True})
+        return {"ok": True}
     if act in ("slips.mine", "overview", "person", "rate", "advance", "bonus",
-               "approve", "slips.make", "slips.month", "slips.final"):
+               "approve", "slips.make", "slips.month", "slips.final", "company",
+               "deduct", "deduct.void", "advance.month", "bank.letter"):
         return pay_route(cid, req, u)
+    if act in ("pay.collect", "dn.invoices", "dn.make", "photo", "settings", "inv.make",
+               "inv.cancel", "inv.list", "rimport.check", "rimport.commit", "namemap.set",
+               "pays.list", "pay.confirm", "pay.cert", "pay.bounce", "allocate", "adj.make",
+               "recv", "ledger"):
+        return money_route(cid, req, u)
+    if str(act or "").startswith(("ai.", "man.")):
+        return ai_route(cid, req, u)
+    if str(act or "").startswith("me."):
+        return me_route(cid, req, u)
+    if act == "voice.put":
+        return voice_put(cid, req, u)
+    if str(act or "").startswith(("chat.", "presence.")):
+        return chat_route(cid, req, u)
+    if str(act or "").startswith("loc."):
+        return loc_route(cid, req, u)
+    if act == "admin.settings":
+        return admin_route(cid, req, u)
     return {"ok": False, "msg": "Unknown action"}
 
 
@@ -2358,11 +2443,33 @@ def _instalment_due(d, adv, month, final):
         return 0
     if final:
         return bal                       # the last month takes all of it
+    o = _override_due(d, adv, month)
+    if o is not None:
+        return o
     n = max(1, int(adv.get("instalments") or 1))
     base = int(adv["amount"] // n)
     done = sum(1 for r in d.get("recoveries", {}).values() if r.get("advance") == adv["id"])
     this = adv["amount"] - base * (n - 1) if done + 1 >= n else base
     return min(this, bal)
+
+
+def iban_ok(iban):
+    """A Pakistani IBAN: PK, two check digits, four letters for the bank,
+    sixteen digits for the account \u2014 and the check digits must add up,
+    so one mistyped figure is caught before a salary goes to a stranger."""
+    s = _re.sub(r"\s", "", str(iban or "")).upper()
+    if not _re.fullmatch(r"PK\d{2}[A-Z]{4}\d{16}", s):
+        return False
+    moved = s[4:] + s[:4]
+    num = "".join(str(int(ch, 36)) for ch in moved)
+    return int(num) % 97 == 1
+
+
+def _override_due(d, adv, month):
+    """What the admin decided to take this month, if anything \u2014 all of it
+    in one salary, a smaller part, or nothing this time."""
+    o = (adv.get("overrides") or {}).get(month)
+    return None if o is None else max(0.0, min(float(o["amount"]), _balance(d, adv)))
 
 
 def pay_calculate(cid, uid, month):
@@ -2393,9 +2500,17 @@ def pay_calculate(cid, uid, month):
     basic_due = basic if full_month else per_day * days_employed
     final = bool(person.get("left")) and str(person["left"])[:7] == month
 
-    month_view = att_month(cid, {"month": month, "user": uid}, {"role": "admin", "id": uid})
-    rows = [r for p in month_view["people"] if p["user"] == uid for r in p["rows"]]
-    rows = [r for r in rows if start <= r["day"] <= end]
+    operator = user.get("role") == "operator"
+    # A partner draws his salary whole: nothing is deducted from it at all.
+    partner = person.get("payType") == "partner"
+    if operator or partner:
+        # An operator works at a client's office: attendance does not touch his
+        # pay. Only advances and deductions the admin records come off it.
+        rows = []
+    else:
+        month_view = att_month(cid, {"month": month, "user": uid}, {"role": "admin", "id": uid})
+        rows = [r for p in month_view["people"] if p["user"] == uid for r in p["rows"]]
+        rows = [r for r in rows if start <= r["day"] <= end]
 
     de = [int(x) for x in pol["duty_end"].split(":")]
     end_min = de[0] * 60 + de[1]
@@ -2464,7 +2579,7 @@ def pay_calculate(cid, uid, month):
     advances = []
     adv_total = 0.0
     for a in d.get("advances", {}).values():
-        if a.get("user") != uid:
+        if a.get("user") != uid or partner:
             continue
         due = _instalment_due(d, a, month, final)
         bal = _balance(d, a)
@@ -2475,9 +2590,14 @@ def pay_calculate(cid, uid, month):
         adv_total += due
     bonus = sum(float(b["amount"]) for b in d.get("bonuses", {}).values()
                 if b.get("user") == uid and b.get("month") == month)
+    # deductions the admin records by hand \u2014 a client's request, anything \u2014 each with its reason
+    other = [{"amount": float(x["amount"]), "reason": x.get("reason", ""), "by": x.get("by", "")}
+             for x in d.get("deductions", {}).values()
+             if x.get("user") == uid and x.get("month") == month and not x.get("void") and not partner]
+    other_total = sum(x["amount"] for x in other)
 
     net = (basic_due + ot_amount + bonus
-           - leave_ded - late_ded - absent_ded - half_ded - early_ded - adv_total)
+           - leave_ded - late_ded - absent_ded - half_ded - early_ded - adv_total - other_total)
     net_r = int(round(net))                          # only the final figure is rounded
     return {"ok": True, "slip": {
         "id": uid + "|" + month, "user": uid, "name": user.get("name"),
@@ -2495,13 +2615,14 @@ def pay_calculate(cid, uid, month):
         "late_deduction": _money(late_ded), "half_deduction": _money(half_ded),
         "advance_deduction": _money(adv_total), "advances": advances,
         "bonus": _money(bonus), "net": net_r, "owes": -net_r if net_r < 0 else 0,
+        "operator": operator, "partner": partner, "other_deductions": other, "other_deduction": _money(other_total),
         "concessions": concessions, "no_out": no_out, "table": table,
         "rate_from": rate.get("from"),
     }}
 
 
 ROLE_NAMES = {"admin": "Admin", "supervisor": "Supervisor", "store": "Store Manager",
-              "tech": "Technician", "helper": "Helper"}
+              "tech": "Technician", "helper": "Helper", "operator": "Operator"}
 
 
 # ---------- what the admin records ----------
@@ -2526,7 +2647,7 @@ def pay_route(cid, req, u):
         mine.sort(key=lambda s: s["month"], reverse=True)
         return {"ok": True, "slips": mine}
 
-    if not _need_admin(u):
+    if not allowed(cid, u, "salary"):
         return {"ok": False, "msg": "Salary is for the admin."}
 
     def need(*keys):
@@ -2551,6 +2672,8 @@ def pay_route(cid, req, u):
                         if a.get("user") == x["id"]]
                 out.append({"user": x["id"], "name": x.get("name"), "role": x.get("role"),
                             "person": d["people"].get(x["id"], {}), "rates": rs,
+                            "deductions": [y for y in d.get("deductions", {}).values()
+                                           if y.get("user") == x["id"] and not y.get("void")],
                             "advances": advs,
                             "bonuses": [b for b in d["bonuses"].values() if b.get("user") == x["id"]]})
             return {"ok": True, "people": out}
@@ -2559,11 +2682,108 @@ def pay_route(cid, req, u):
             e = need("user")
             if e: return e
             p = d["people"].setdefault(req["user"], {})
-            for k in ("joined", "left", "designation"):
+            for k in ("joined", "left", "designation", "acTitle", "acBank"):
                 if k in req:
                     p[k] = str(req.get(k) or "").strip()
+            if "payType" in req:
+                p["payType"] = "partner" if req.get("payType") == "partner" else ""
+            if "iban" in req:
+                ib = _re.sub(r"\s", "", str(req.get("iban") or "")).upper()
+                if ib and not iban_ok(ib):
+                    return {"ok": False, "msg": "That IBAN is not right \u2014 check it against the bank's. "
+                                                "A Pakistani IBAN is 24 characters, PK then 22."}
+                p["iban"] = ib
             hr_save(cid, d)
             return {"ok": True}
+
+        if act == "company":           # Paragon's own account, for the bank letter
+            if req.get("set"):
+                c = d.setdefault("company", {})
+                for k in ("acTitle", "acBank", "branch", "branchAddr"):
+                    if k in req:
+                        c[k] = str(req.get(k) or "").strip()
+                if isinstance(req.get("letter"), dict):
+                    # the letter's own words and who signs it \u2014 every part the admin's to change
+                    L = req["letter"]
+                    keep = {}
+                    for k in ("to", "subject", "salutation", "body", "closing", "signoff", "forLine", "ref"):
+                        if k in L:
+                            keep[k] = str(L.get(k) or "")[:2000]
+                    sigs = []
+                    for s in (L.get("signers") or [])[:4]:
+                        if isinstance(s, dict) and str(s.get("name") or "").strip():
+                            sigs.append({"name": str(s["name"]).strip()[:80], "title": str(s.get("title") or "").strip()[:60],
+                                         "stamp": bool(s.get("stamp", True))})
+                    keep["signers"] = sigs
+                    c["letter"] = keep
+                if "iban" in req:
+                    ib = _re.sub(r"\s", "", str(req.get("iban") or "")).upper()
+                    if ib and not iban_ok(ib):
+                        return {"ok": False, "msg": "That IBAN is not right \u2014 check it against the bank's."}
+                    c["iban"] = ib
+                hr_save(cid, d)
+            return {"ok": True, "company": d.get("company", {})}
+
+        if act == "deduct":            # a deduction by hand, always with its reason
+            e = need("user", "month", "amount", "reason")
+            if e: return e
+            if float(req["amount"]) <= 0:
+                return {"ok": False, "msg": "Enter the amount."}
+            xid = _new_id()
+            d.setdefault("deductions", {})[xid] = {"id": xid, "user": req["user"], "month": str(req["month"])[:7],
+                                                   "amount": float(req["amount"]), "reason": str(req["reason"]),
+                                                   "by": u.get("name"), "at": stamp}
+            hr_save(cid, d)
+            return {"ok": True, "id": xid}
+
+        if act == "deduct.void":
+            x = d.get("deductions", {}).get(str(req.get("id") or ""))
+            if not x:
+                return {"ok": False, "msg": "No such deduction."}
+            slip = d.get("slips", {}).get(x["user"] + "|" + x["month"])
+            if slip and slip.get("status") == "final":
+                return {"ok": False, "msg": "That month's slip is finalised; it cannot change now."}
+            x["void"] = True; x["voidBy"] = u.get("name"); x["voidAt"] = stamp
+            hr_save(cid, d)
+            return {"ok": True}
+
+        if act == "advance.month":     # this month: all of it, a part, or nothing
+            a = d.get("advances", {}).get(str(req.get("id") or ""))
+            if not a:
+                return {"ok": False, "msg": "No such advance."}
+            month = str(req.get("month") or "")[:7]
+            if len(month) != 7:
+                return {"ok": False, "msg": "Choose the month."}
+            if req.get("clear"):
+                (a.get("overrides") or {}).pop(month, None)
+            else:
+                amt = float(req.get("amount") or 0)
+                if amt < 0 or amt - _balance(d, a) > 0.5:
+                    return {"ok": False, "msg": "That is more than is left on this advance (%s)." % _balance(d, a)}
+                a.setdefault("overrides", {})[month] = {"amount": amt, "by": u.get("name"), "at": stamp,
+                                                        "note": str(req.get("note") or "")}
+            hr_save(cid, d)
+            return {"ok": True}
+
+        if act == "bank.letter":       # every finalised salary of the month, for the bank
+            month = str(req.get("month") or "")[:7]
+            users = store_load(cid).get("users", {})
+            rows, missing, skipped = [], [], []
+            for s in sorted(d.get("slips", {}).values(), key=lambda s: str(s.get("name") or "")):
+                if s.get("month") != month or s.get("status") != "final":
+                    continue
+                if s["net"] <= 0:
+                    skipped.append({"name": s.get("name"), "net": s["net"]}); continue
+                p = d["people"].get(s["user"], {})
+                if not (p.get("iban") and p.get("acTitle") and p.get("acBank")):
+                    missing.append(s.get("name")); continue
+                rows.append({"name": s.get("name"), "title": p["acTitle"], "bank": p["acBank"],
+                             "iban": p["iban"], "amount": s["net"]})
+            drafts = [s.get("name") for s in d.get("slips", {}).values()
+                      if s.get("month") == month and s.get("status") != "final"]
+            return {"ok": True, "month": month, "company": d.get("company", {}), "rows": rows,
+                    "total": sum(r["amount"] for r in rows), "missing": missing, "skipped": skipped,
+                    "drafts": drafts}
 
         if act == "rate":              # a raise is a new row; nothing is overwritten
             e = need("user", "basic", "from")
@@ -2678,6 +2898,2194 @@ def pay_route(cid, req, u):
             hr_save(cid, d)
             return {"ok": True}
 
+    return {"ok": False, "msg": "Unknown action"}
+
+
+# ================================================================
+#  INVOICES, PAYMENTS AND RECEIVABLES
+#  ----------------------------------------------------------------
+#  The nine rules of the specification, all kept here:
+#    1 nothing is deleted \u2014 cancelled, adjusted or written off, with
+#      a reason, and it stays
+#    2 an issued invoice is never edited
+#    3 a payment counts only once confirmed, never on collection
+#    4 allocation is automatic only where exactly one answer is possible
+#    5 tax rates are frozen at creation
+#    6 balances are computed from entries, never stored
+#    7 a duplicate invoice number is refused on import
+#    8 nothing imports without a summary the admin has seen
+#    9 every serial on a delivery note, every first counter photographed
+#  And the owner's decisions:
+#    withholding is its own line on a payment; the certificate comes later
+#    each brand has its own series, continuing from the last by hand
+#    payment terms are the client's own, changeable on each invoice
+#    an advance waits on the client's account until the admin applies it
+#    an overpayment is decided by the admin each time
+#    only an admin writes off, with a reason, whenever needed
+#    a discount after invoicing is an adjustment with a reason
+#    a rental client's name is matched once and remembered
+# ================================================================
+
+import base64 as _b64m
+
+_money_lock = threading.Lock()
+BRAND_KEYS = ("paragon", "house", "star")
+
+
+def _money_path(cid):
+    return os.path.join(DATA_DIR, str(cid or "main") + "-money.json")
+
+
+def money_load(cid):
+    try:
+        with open(_money_path(cid), "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        d = {}
+    for k in ("sinv", "rinv", "namemap", "pays", "allocs", "adjust", "dnotes"):
+        d.setdefault(k, {})
+    s = d.setdefault("settings", {})
+    s.setdefault("brands", {b: {"prefix": "", "next": None, "bank": ""} for b in BRAND_KEYS})
+    s.setdefault("warranty", "")
+    s.setdefault("terms", {})            # a client's own default terms
+    return d
+
+
+def money_save(cid, d):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = _money_path(cid) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(d, fh)
+    os.replace(tmp, _money_path(cid))
+
+
+def _photo_dir(cid):
+    p = os.path.join(DATA_DIR, str(cid or "main") + "-money-photos")
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+def _keep_photo(cid, data_url):
+    """A photo is kept as its own file; records carry only its name."""
+    s = str(data_url or "")
+    if "," in s:
+        s = s.split(",", 1)[1]
+    if not s:
+        return ""
+    raw = _b64m.b64decode(s)
+    if len(raw) > 3 * 1024 * 1024:
+        raise ValueError("That photo is too large")
+    pid = secrets.token_hex(8)
+    with open(os.path.join(_photo_dir(cid), pid + ".jpg"), "wb") as fh:
+        fh.write(raw)
+    return pid
+
+
+def _read_photo(cid, pid):
+    pid = "".join(ch for ch in str(pid) if ch in "0123456789abcdef")
+    try:
+        with open(os.path.join(_photo_dir(cid), pid + ".jpg"), "rb") as fh:
+            return "data:image/jpeg;base64," + _b64m.b64encode(fh.read()).decode()
+    except OSError:
+        return ""
+
+
+def _today():
+    return pk_now().strftime("%Y-%m-%d")
+
+
+def _add_days(day, n):
+    return (_dt.date.fromisoformat(day) + _dt.timedelta(days=int(n))).isoformat()
+
+
+# ---------- what is owed, always counted, never stored ----------
+
+def _live_allocs(d):
+    ok = {p["id"] for p in d["pays"].values() if p.get("status") == "confirmed"}
+    return [a for a in d["allocs"].values() if not a.get("void") and a.get("pay") in ok]
+
+
+def _inv_key(kind, ident):
+    return ("s:" if kind == "sales" else "r:") + str(ident)
+
+
+def _outstanding(d, key, total, cancelled=False):
+    if cancelled:
+        return 0.0
+    paid = sum(a["amount"] for a in _live_allocs(d) if a.get("inv") == key)
+    adj = sum(x["amount"] for x in d["adjust"].values() if x.get("inv") == key)
+    return round(total - paid - adj, 2)
+
+
+def _open_items(d, client=None):
+    """Every invoice with money still owing, sales and rental, oldest first."""
+    out = []
+    for i in d["sinv"].values():
+        if client and i["client"] != client:
+            continue
+        key = _inv_key("sales", i["id"])
+        o = _outstanding(d, key, i["total"], i.get("status") == "cancelled")
+        if o > 0.5:
+            out.append({"key": key, "kind": "sales", "no": i["no"], "client": i["client"],
+                        "date": i["date"], "due": i.get("due") or i["date"],
+                        "total": i["total"], "outstanding": o})
+    for r in d["rinv"].values():
+        if client and r["client"] != client:
+            continue
+        key = _inv_key("rental", r["no"])
+        o = _outstanding(d, key, r["total"])
+        if o > 0.5:
+            out.append({"key": key, "kind": "rental", "no": r["no"], "client": r["client"],
+                        "date": r["date"], "due": r["date"], "total": r["total"], "outstanding": o})
+    out.sort(key=lambda x: (x["date"], x["no"]))
+    return out
+
+
+def _credit(d, client):
+    """Money received and confirmed that is not yet set against an invoice:
+    an advance, or an overpayment the admin has not yet decided on."""
+    got = sum(p["amount"] + p.get("withholding", 0) for p in d["pays"].values()
+              if p.get("client") == client and p.get("status") == "confirmed")
+    used = sum(a["amount"] for a in _live_allocs(d)
+               if d["pays"].get(a["pay"], {}).get("client") == client)
+    refunded = sum(x["amount"] for x in d["adjust"].values()
+                   if x.get("client") == client and x.get("type") == "refund")
+    return round(got - used - refunded, 2)
+
+
+def _unallocated(d, pay):
+    used = sum(a["amount"] for a in d["allocs"].values()
+               if a.get("pay") == pay["id"] and not a.get("void"))
+    return round(pay["amount"] + pay.get("withholding", 0) - used, 2)
+
+
+def _inv_status(d, i):
+    if i.get("status") == "cancelled":
+        return "cancelled"
+    o = _outstanding(d, _inv_key("sales", i["id"]), i["total"])
+    if o <= 0.5:
+        return "paid"
+    return "partially_paid" if o < i["total"] - 0.5 else "issued"
+
+
+def _client_name(cid, client):
+    c = store_load(cid).get("clients", {}).get(client) or {}
+    return c.get("name") or client
+
+
+# ---------- allocation: automatic only where exactly one answer exists ----------
+
+def _auto_allocate(d, pay, by):
+    amt = _unallocated(d, pay)
+    if amt <= 0.5:
+        return "nothing"
+    items = _open_items(d, pay["client"])
+    whole = round(sum(x["outstanding"] for x in items), 2)
+    stamp = pk_now().isoformat(timespec="seconds")
+    if items and abs(amt - whole) <= 0.5:
+        for x in items:
+            aid = secrets.token_hex(6)
+            d["allocs"][aid] = {"id": aid, "pay": pay["id"], "inv": x["key"],
+                                "amount": x["outstanding"], "by": by, "at": stamp, "method": "automatic"}
+        return "whole balance"
+    same = [x for x in items if abs(x["outstanding"] - amt) <= 0.5]
+    if len(same) == 1:
+        x = same[0]
+        aid = secrets.token_hex(6)
+        d["allocs"][aid] = {"id": aid, "pay": pay["id"], "inv": x["key"],
+                            "amount": x["outstanding"], "by": by, "at": stamp, "method": "automatic"}
+        return "one invoice"
+    return "needs a person"
+
+
+# ---------- the routes ----------
+
+def money_route(cid, req, u):
+    act = req.get("action")
+    role = u.get("role")
+    admin = allowed(cid, u, "money")
+    stamp = pk_now().isoformat(timespec="seconds")
+    who = u.get("name")
+
+    def refuse(msg="Money screens are for the admin."):
+        return {"ok": False, "msg": msg}
+
+    with _money_lock:
+        d = money_load(cid)
+
+        # --- a technician in front of the client, collecting ---
+        if act == "pay.collect":
+            if not allowed(cid, u, "collect"):
+                return refuse("Only a technician or the admin records a collection.")
+            client = str(req.get("client") or "")
+            amt = float(req.get("amount") or 0)
+            if not client or amt <= 0:
+                return {"ok": False, "msg": "Choose the client and enter the amount."}
+            if req.get("method") not in ("cash", "cheque", "bank_transfer"):
+                return {"ok": False, "msg": "Choose how it was paid."}
+            if not req.get("photo"):
+                return {"ok": False, "msg": "A photo of the cheque or the receipt is required."}
+            due = round(sum(x["outstanding"] for x in _open_items(d, client)) - _credit(d, client), 2)
+            why = str(req.get("reason") or "")
+            if abs(due - amt) > 0.5 and why not in ("part", "withholding", "advance"):
+                # caught here, while he is still in front of the client
+                return {"ok": False, "mismatch": True, "due": due, "received": amt,
+                        "difference": round(due - amt, 2)}
+            pid = secrets.token_hex(6)
+            d["pays"][pid] = {"id": pid, "client": client, "amount": amt, "withholding": 0,
+                              "method": req["method"], "photo": _keep_photo(cid, req["photo"]),
+                              "status": "collected", "collectedBy": who, "collectedAt": stamp,
+                              "reason": why, "note": str(req.get("note") or "")}
+            money_save(cid, d)
+            return {"ok": True, "id": pid}
+
+        # --- delivery: the store manager may do this too, and sees no prices ---
+        if act in ("dn.invoices", "dn.make"):
+            if not allowed(cid, u, "delivery"):
+                return refuse("Delivery notes are for the admin and the store.")
+            if act == "dn.invoices":
+                out = []
+                for i in d["sinv"].values():
+                    if i.get("status") == "cancelled":
+                        continue
+                    lines = [{"desc": l["desc"], "qty": l["qty"], "model": l.get("model", ""),
+                              "warranty": l.get("warranty")} for l in i["lines"]]
+                    out.append({"id": i["id"], "no": i["no"], "client": i["client"],
+                                "brand": i["brand"], "date": i["date"], "po": i.get("po", ""),
+                                "lines": lines,
+                                "delivered": [it for n in d["dnotes"].values() if n["inv"] == i["id"]
+                                              for it in n["items"]]})
+                return {"ok": True, "invoices": out}
+            inv = d["sinv"].get(str(req.get("inv") or ""))
+            if not inv or inv.get("status") == "cancelled":
+                return {"ok": False, "msg": "Choose an issued invoice."}
+            if not req.get("date"):
+                return {"ok": False, "msg": "Enter the delivery date."}
+            items = req.get("items") or []
+            if not items:
+                return {"ok": False, "msg": "Add at least one machine."}
+            kept = []
+            for it in items:
+                if not str(it.get("serial") or "").strip():
+                    return {"ok": False, "msg": "Every machine needs its serial number."}
+                if str(it.get("counter") or "").strip() == "":
+                    return {"ok": False, "msg": "Every machine needs its counter at delivery."}
+                if not it.get("counterPhoto"):
+                    return {"ok": False, "msg": "A photo of the counter is required for "
+                                                + str(it.get("serial")) + "."}
+            for it in items:
+                kept.append({"line": int(it.get("line") or 0), "serial": str(it["serial"]).strip(),
+                             "model": str(it.get("model") or ""), "counter": int(float(it["counter"])),
+                             "counterPhoto": _keep_photo(cid, it["counterPhoto"]),
+                             "condition": str(it.get("condition") or "")})
+            n = sum(1 for x in d["dnotes"].values() if x["inv"] == inv["id"]) + 1
+            nid = secrets.token_hex(6)
+            d["dnotes"][nid] = {"id": nid, "no": "%s-D%d" % (inv["no"], n), "inv": inv["id"],
+                                "address": str(req.get("address") or ""), "date": str(req["date"])[:10],
+                                "po": inv.get("po", ""), "poDate": inv.get("poDate", ""),
+                                "deliveredBy": str(req.get("deliveredBy") or who),
+                                "recvName": str(req.get("recvName") or ""),
+                                "recvDesig": str(req.get("recvDesig") or ""),
+                                "signed": _keep_photo(cid, req.get("signed")) if req.get("signed") else "",
+                                "items": kept, "by": who, "at": stamp}
+            money_save(cid, d)
+            return {"ok": True, "id": nid, "no": d["dnotes"][nid]["no"]}
+
+        if act == "photo":
+            if not (allowed(cid, u, "delivery") or admin):
+                return refuse()
+            return {"ok": True, "data": _read_photo(cid, req.get("id"))}
+
+        if not admin:
+            return refuse()
+
+        # --- settings: numbering, bank details, warranty wording, terms ---
+        if act == "settings":
+            if req.get("set"):
+                s = d["settings"]
+                for b in BRAND_KEYS:
+                    got = (req.get("brands") or {}).get(b)
+                    if got:
+                        cur = s["brands"][b]
+                        if "prefix" in got: cur["prefix"] = str(got["prefix"]).strip()
+                        if got.get("next") not in (None, ""): cur["next"] = int(got["next"])
+                        for k in ("bank", "addr", "phone", "ntn", "strn"):
+                            if k in got: cur[k] = str(got[k])
+                if "warranty" in req:
+                    s["warranty"] = str(req["warranty"])
+                for c, t in (req.get("terms") or {}).items():
+                    s["terms"][c] = t
+                money_save(cid, d)
+            return {"ok": True, "settings": d["settings"]}
+
+        # --- a sales invoice, from the ticked lines of an accepted quotation ---
+        if act == "inv.make":
+            q = store_load(cid).get("quotes", {}).get(str(req.get("quote") or ""))
+            if not q:
+                return {"ok": False, "msg": "That quotation was not found on the server."}
+            if q.get("state") != "accepted":
+                return {"ok": False, "msg": "Only an accepted quotation can be invoiced."}
+            if q.get("type") == "rental":
+                return {"ok": False, "msg": "Rental invoices are made in the other software and imported."}
+            brand = q.get("brand") or "paragon"
+            b = d["settings"]["brands"].get(brand) or {}
+            if not b.get("prefix") or b.get("next") in (None, ""):
+                return {"ok": False, "msg": "Set this brand's invoice prefix and next number first "
+                        "(Money \u2192 Settings), so the series continues rather than restarts."}
+            if not req.get("date"):
+                return {"ok": False, "msg": "Enter the invoice date \u2014 it is the date on the document."}
+            pick = [int(x) for x in (req.get("lines") or [])]
+            if not pick:
+                return {"ok": False, "msg": "Tick at least one line that was ordered."}
+            kind = req.get("type") if req.get("type") in ("sales", "service", "cash") else "sales"
+            taxed = bool(q.get("tax")) and kind != "cash"
+            rate = float(q.get("taxPct") or 0) if taxed else 0.0     # frozen, as quoted
+            warranty = set(int(x) for x in (req.get("warranty") or []))
+            lines, sub, tax = [], 0.0, 0.0
+            ql = q.get("lines") or []
+            for idx in pick:
+                if idx < 0 or idx >= len(ql):
+                    continue
+                l = ql[idx]
+                qty = float(l.get("qty") or 1)
+                price = float(l.get("price") or 0)
+                amt = price * qty
+                before = amt / (1 + rate / 100) if (l.get("enteredAs") == "after" and rate) else amt
+                t = before * rate / 100
+                lines.append({"from": idx, "desc": l.get("desc", ""), "model": l.get("model", ""),
+                              "qty": qty, "unit": round(before / qty, 2) if qty else before,
+                              "before": round(before, 2), "tax": round(t, 2),
+                              "after": round(before + t, 2), "warranty": idx in warranty})
+                sub += before; tax += t
+            terms = req.get("terms") or d["settings"]["terms"].get(q.get("client")) or {"kind": "days", "days": 30}
+            day = str(req["date"])[:10]
+            due = _add_days(day, terms.get("days", 0)) if terms.get("kind") == "days" else day
+            no = "%s%s" % (b["prefix"], b["next"])
+            if any(i["no"] == no for i in d["sinv"].values()):
+                return {"ok": False, "msg": "Invoice number %s is already used." % no}
+            b["next"] = int(b["next"]) + 1
+            iid = secrets.token_hex(6)
+            d["sinv"][iid] = {"id": iid, "no": no, "brand": brand, "client": q.get("client"),
+                              "quote": q.get("id"), "quoteNo": q.get("no"), "type": kind,
+                              "date": day, "due": due, "terms": terms,
+                              "po": str(req.get("po") or ""), "poDate": str(req.get("poDate") or ""),
+                              "poFile": _keep_photo(cid, req.get("poPhoto")) if req.get("poPhoto") else "",
+                              "tax": taxed, "rate": rate, "lines": lines,
+                              "subtotal": round(sub, 2), "taxAmt": round(tax, 2),
+                              "total": round(sub + tax, 2), "status": "issued", "by": who, "at": stamp}
+            money_save(cid, d)
+            return {"ok": True, "id": iid, "no": no}
+
+        if act == "inv.cancel":
+            i = d["sinv"].get(str(req.get("id") or ""))
+            why = str(req.get("reason") or "").strip()
+            if not i:
+                return {"ok": False, "msg": "No such invoice."}
+            if not why:
+                return {"ok": False, "msg": "A reason is required to cancel an invoice."}
+            if any(a["inv"] == _inv_key("sales", i["id"]) for a in _live_allocs(d)):
+                return {"ok": False, "msg": "Payments are set against this invoice. Move them first."}
+            i["status"] = "cancelled"; i["cancelReason"] = why; i["cancelledBy"] = who; i["cancelledAt"] = stamp
+            money_save(cid, d)
+            return {"ok": True}
+
+        if act == "inv.list":
+            out = []
+            for i in d["sinv"].values():
+                x = dict(i)
+                x["outstanding"] = _outstanding(d, _inv_key("sales", i["id"]), i["total"],
+                                                i.get("status") == "cancelled")
+                x["state"] = _inv_status(d, i)
+                x["clientName"] = _client_name(cid, i["client"])
+                x["deliveries"] = [n for n in d["dnotes"].values() if n["inv"] == i["id"]]
+                out.append(x)
+            out.sort(key=lambda x: (x["date"], x["no"]), reverse=True)
+            return {"ok": True, "invoices": out, "settings": d["settings"]}
+
+        # --- rental invoices: checked, summarised, then imported on a tap ---
+        if act in ("rimport.check", "rimport.commit"):
+            clients = store_load(cid).get("clients", {})
+            by_name = {str(c.get("name", "")).strip().lower(): k for k, c in clients.items()}
+            seen, ready, dup, unknown, bad = set(), [], [], [], []
+            for n, r in enumerate(req.get("rows") or []):
+                name = str(r.get("client") or "").strip()
+                no = str(r.get("no") or "").strip()
+                try:
+                    amount = float(r.get("amount") or 0); tax = float(r.get("tax") or 0)
+                    total = float(r.get("total") or 0)
+                except (TypeError, ValueError):
+                    bad.append({"row": r.get("row", n + 2), "no": no, "why": "a figure is not a number"}); continue
+                if not no or not name or not r.get("date") or not r.get("month"):
+                    bad.append({"row": r.get("row", n + 2), "no": no, "why": "a required column is empty"}); continue
+                if no in d["rinv"] or no in seen:
+                    dup.append({"row": r.get("row", n + 2), "no": no}); continue
+                if abs(amount + tax - total) > 0.5:
+                    bad.append({"row": r.get("row", n + 2), "no": no,
+                                "why": "amount + tax (%s) is not the total (%s)" % (amount + tax, total)}); continue
+                client = d["namemap"].get(name.lower()) or by_name.get(name.lower())
+                if not client:
+                    unknown.append({"row": r.get("row", n + 2), "no": no, "name": name}); continue
+                seen.add(no)
+                ready.append({"no": no, "client": client, "date": str(r["date"])[:10],
+                              "month": str(r["month"])[:7], "amount": amount, "tax": tax, "total": total})
+            report = {"ok": True, "ready": len(ready), "value": round(sum(x["total"] for x in ready), 2),
+                      "duplicates": dup, "unknown": unknown, "bad": bad,
+                      "names": sorted({x["name"] for x in unknown})}
+            if act == "rimport.check":
+                return report
+            batch = secrets.token_hex(4)
+            for x in ready:
+                x.update({"batch": batch, "by": who, "at": stamp})
+                d["rinv"][x["no"]] = x
+            money_save(cid, d)
+            report["imported"] = len(ready); report["batch"] = batch
+            return report
+
+        if act == "namemap.set":
+            name = str(req.get("name") or "").strip().lower()
+            if not name or not req.get("client"):
+                return {"ok": False, "msg": "Choose the client for that name."}
+            d["namemap"][name] = str(req["client"])
+            money_save(cid, d)
+            return {"ok": True}
+
+        # --- payments: confirmed in the office, with the cheque in hand ---
+        if act == "pays.list":
+            out = []
+            for p in d["pays"].values():
+                x = dict(p); x["clientName"] = _client_name(cid, p["client"])
+                x["unallocated"] = _unallocated(d, p) if p["status"] == "confirmed" else None
+                x["allocs"] = [a for a in d["allocs"].values() if a["pay"] == p["id"] and not a.get("void")]
+                out.append(x)
+            out.sort(key=lambda x: (x["status"] != "collected", x.get("collectedAt", "")), reverse=False)
+            return {"ok": True, "pays": out}
+
+        if act == "pay.confirm":
+            p = d["pays"].get(str(req.get("id") or ""))
+            if not p or p["status"] != "collected":
+                return {"ok": False, "msg": "Only a collected payment can be confirmed."}
+            if p["method"] == "cheque" and not (req.get("chequeNo") and req.get("chequeDate") and req.get("bank")):
+                return {"ok": False, "msg": "Enter the cheque number, date and bank."}
+            p.update({"chequeNo": str(req.get("chequeNo") or ""), "chequeDate": str(req.get("chequeDate") or ""),
+                      "bank": str(req.get("bank") or ""), "withholding": float(req.get("withholding") or 0),
+                      "status": "confirmed", "confirmedBy": who, "confirmedAt": stamp})
+            how = _auto_allocate(d, p, who)
+            money_save(cid, d)
+            return {"ok": True, "allocation": how, "unallocated": _unallocated(d, p)}
+
+        if act == "pay.cert":
+            p = d["pays"].get(str(req.get("id") or ""))
+            if not p or not req.get("photo"):
+                return {"ok": False, "msg": "Choose the payment and the certificate."}
+            p["whCert"] = _keep_photo(cid, req["photo"]); p["whCertNo"] = str(req.get("no") or "")
+            p["whCertAt"] = stamp
+            money_save(cid, d)
+            return {"ok": True}
+
+        if act == "pay.bounce":
+            p = d["pays"].get(str(req.get("id") or ""))
+            why = str(req.get("reason") or "").strip()
+            if not p or p["status"] != "confirmed":
+                return {"ok": False, "msg": "Only a confirmed payment can bounce."}
+            if not why:
+                return {"ok": False, "msg": "A reason is required."}
+            p.update({"status": "bounced", "bounceReason": why, "bouncedBy": who, "bouncedAt": stamp})
+            for a in d["allocs"].values():            # the receivable goes back up
+                if a["pay"] == p["id"]:
+                    a["void"] = True
+            money_save(cid, d)
+            return {"ok": True}
+
+        if act == "allocate":
+            p = d["pays"].get(str(req.get("pay") or ""))
+            if not p or p["status"] != "confirmed":
+                return {"ok": False, "msg": "Only a confirmed payment can be set against invoices."}
+            left = _unallocated(d, p)
+            open_ = {x["key"]: x for x in _open_items(d, p["client"])}
+            want = [(str(x.get("inv")), float(x.get("amount") or 0)) for x in (req.get("lines") or [])]
+            if sum(a for _, a in want) - left > 0.5:
+                return {"ok": False, "msg": "That is more than is left on this payment (%s)." % left}
+            for key, a in want:
+                if key not in open_ or a <= 0 or a - open_[key]["outstanding"] > 0.5:
+                    return {"ok": False, "msg": "One of those amounts is more than that invoice owes."}
+            for key, a in want:
+                aid = secrets.token_hex(6)
+                d["allocs"][aid] = {"id": aid, "pay": p["id"], "inv": key, "amount": round(a, 2),
+                                    "by": who, "at": stamp, "method": "manual"}
+            money_save(cid, d)
+            return {"ok": True}
+
+        # --- adjustments: never an edit to the invoice ---
+        if act == "adj.make":
+            kind = req.get("type")
+            why = str(req.get("reason") or "").strip()
+            amt = float(req.get("amount") or 0)
+            if kind not in ("discount", "write_off", "credit_note", "refund", "correction"):
+                return {"ok": False, "msg": "Choose what kind of adjustment."}
+            if not why or amt <= 0:
+                return {"ok": False, "msg": "An adjustment needs an amount and a reason."}
+            client = str(req.get("client") or "")
+            key = str(req.get("inv") or "")
+            if kind == "refund":
+                if amt - _credit(d, client) > 0.5:
+                    return {"ok": False, "msg": "That is more than the credit on this account."}
+                key = ""
+            else:
+                open_ = {x["key"]: x for x in _open_items(d, client)}
+                if key not in open_ or amt - open_[key]["outstanding"] > 0.5:
+                    return {"ok": False, "msg": "Choose an open invoice, for no more than it owes."}
+            xid = secrets.token_hex(6)
+            d["adjust"][xid] = {"id": xid, "client": client, "inv": key, "type": kind, "amount": amt,
+                                "reason": why, "by": who, "at": stamp}
+            money_save(cid, d)
+            return {"ok": True, "id": xid}
+
+        # --- receivables and the ledger, counted afresh every time ---
+        if act == "recv":
+            items = _open_items(d)
+            today = _dt.date.fromisoformat(_today())
+            rows = {}
+            for x in items:
+                r = rows.setdefault((x["kind"], x["client"]), {"client": x["client"], "kind": x["kind"],
+                                    "count": 0, "outstanding": 0.0, "oldest": 0, "over60": 0.0})
+                age = (today - _dt.date.fromisoformat(x["date"])).days
+                r["count"] += 1; r["outstanding"] = round(r["outstanding"] + x["outstanding"], 2)
+                r["oldest"] = max(r["oldest"], age)
+                if age >= 60:
+                    r["over60"] = round(r["over60"] + x["outstanding"], 2)
+            out = sorted(rows.values(), key=lambda r: -r["outstanding"])
+            for r in out:
+                r["name"] = _client_name(cid, r["client"])
+            summ = {k: {"outstanding": round(sum(r["outstanding"] for r in out if r["kind"] == k), 2),
+                        "over60": round(sum(r["over60"] for r in out if r["kind"] == k), 2)}
+                    for k in ("sales", "rental")}
+            waiting = sum(1 for p in d["pays"].values() if p["status"] == "collected")
+            no_cert = [p["id"] for p in d["pays"].values()
+                       if p["status"] == "confirmed" and p.get("withholding", 0) > 0 and not p.get("whCert")]
+            return {"ok": True, "rows": out, "summary": summ, "awaiting": waiting, "noCert": len(no_cert)}
+
+        if act == "dash.money":
+            # Everything the Money tab shows, worked out here, once, from the
+            # same helpers the receivables screens use \u2014 so the dashboard and
+            # the lists can never disagree.
+            today = _dt.date.fromisoformat(_today()); month = _today()[:7]
+            items = _open_items(d)
+            summ = {"sales": 0.0, "rental": 0.0, "over60": 0.0}
+            per = {}
+            for x in items:
+                age = (today - _dt.date.fromisoformat(x["date"])).days
+                summ[x["kind"]] += x["outstanding"]
+                if age > 60:
+                    summ["over60"] += x["outstanding"]
+                c = per.setdefault(x["client"], {"client": x["client"], "count": 0, "kinds": set(),
+                                                 "amount": 0.0, "oldest": 0})
+                c["count"] += 1; c["kinds"].add(x["kind"]); c["amount"] += x["outstanding"]
+                c["oldest"] = max(c["oldest"], age)
+            owed = sorted(per.values(), key=lambda c: (-c["oldest"], -c["amount"]))[:5]
+            for c in owed:
+                c["name"] = _client_name(cid, c["client"])
+                c["kinds"] = " + ".join(k.capitalize() for k in sorted(c["kinds"]))
+                c["amount"] = round(c["amount"], 2)
+            confirmed = [x for x in d["pays"].values() if x.get("status") == "confirmed"
+                         and str(x.get("confirmedAt") or "")[:7] == month]
+            waiting = sorted([x for x in d["pays"].values() if x.get("status") == "collected"],
+                             key=lambda x: str(x.get("collectedAt") or ""))
+            users = store_load(cid).get("users", {})
+            inv_m = {"issued": 0, "paid": 0, "part": 0, "unpaid": 0}
+            for i in d["sinv"].values():
+                if str(i.get("date") or "")[:7] != month or i.get("status") == "cancelled":
+                    continue
+                o = _outstanding(d, _inv_key("sales", i["id"]), i["total"])
+                inv_m["issued"] += 1
+                inv_m["paid" if o <= 0.5 else ("part" if o < i["total"] - 0.5 else "unpaid")] += 1
+            # slow payers: how long, on average, a client took to pay what was set against an invoice
+            dates = {_inv_key("sales", i["id"]): i["date"] for i in d["sinv"].values()}
+            dates.update({_inv_key("rental", r["no"]): r["date"] for r in d["rinv"].values()})
+            took = {}
+            for a in _live_allocs(d):
+                pay = d["pays"].get(a["pay"]) or {}
+                if pay.get("status") != "confirmed" or a.get("inv") not in dates:
+                    continue
+                days = (_dt.date.fromisoformat(str(pay.get("confirmedAt"))[:10]) -
+                        _dt.date.fromisoformat(dates[a["inv"]])).days
+                t = took.setdefault(pay["client"], [0.0, 0.0]); t[0] += days * a["amount"]; t[1] += a["amount"]
+            slow = sorted([{"client": k, "name": _client_name(cid, k), "days": round(v[0] / v[1])}
+                           for k, v in took.items() if v[1] > 0 and v[0] / v[1] > 60], key=lambda x: -x["days"])
+            return {"ok": True,
+                    "sales": round(summ["sales"], 2), "rental": round(summ["rental"], 2),
+                    "total": round(summ["sales"] + summ["rental"], 2), "over60": round(summ["over60"], 2),
+                    "collected": round(sum(x["amount"] for x in confirmed), 2),
+                    "awaitingSum": round(sum(x["amount"] for x in waiting), 2), "awaitingCount": len(waiting),
+                    "awaiting": [{"id": x["id"], "amount": x["amount"], "method": x.get("method"),
+                                  "client": _client_name(cid, x["client"]),
+                                  "by": (users.get(x.get("collectedBy")) or {}).get("name") or x.get("collectedBy") or "",
+                                  "at": x.get("collectedAt")} for x in waiting],
+                    "owed": owed, "invoices": inv_m, "slow": slow[:3],
+                    "noCert": sum(1 for x in d["pays"].values() if x.get("status") == "confirmed"
+                                  and x.get("withholding", 0) > 0 and not x.get("whCert"))}
+
+        if act == "ledger":
+            client = str(req.get("client") or "")
+            frm = str(req.get("from") or "0000-00-00"); to = str(req.get("to") or "9999-99-99")
+            e = []
+            for i in d["sinv"].values():
+                if i["client"] == client:
+                    e.append((i["date"], 0, "Invoice " + i["no"], i["total"], 0))
+                    if i.get("status") == "cancelled":
+                        e.append((i.get("cancelledAt", i["date"])[:10], 1,
+                                  "Cancelled " + i["no"] + " \u2014 " + i.get("cancelReason", ""), 0, i["total"]))
+            for r in d["rinv"].values():
+                if r["client"] == client:
+                    e.append((r["date"], 0, "Rental " + r["no"] + " (" + r["month"] + ")", r["total"], 0))
+            for p in d["pays"].values():
+                if p["client"] != client or p["status"] == "collected":
+                    continue
+                day = (p.get("confirmedAt") or "")[:10]
+                label = {"cheque": "Payment \u2014 cheque " + p.get("chequeNo", ""),
+                         "cash": "Payment \u2014 cash", "bank_transfer": "Payment \u2014 bank transfer"}[p["method"]]
+                e.append((day, 2, label, 0, p["amount"]))
+                if p.get("withholding"):
+                    e.append((day, 3, "Withholding" + (" \u2014 cert. " + p["whCertNo"] if p.get("whCertNo") else
+                              " \u2014 certificate awaited"), 0, p["withholding"]))
+                if p["status"] == "bounced":
+                    e.append(((p.get("bouncedAt") or day)[:10], 4, "Bounced \u2014 " + p.get("bounceReason", ""),
+                              p["amount"] + p.get("withholding", 0), 0))
+            for x in d["adjust"].values():
+                if x["client"] == client:
+                    label = {"discount": "Discount", "write_off": "Written off", "credit_note": "Credit note",
+                             "refund": "Refund", "correction": "Correction"}[x["type"]] + " \u2014 " + x["reason"]
+                    if x["type"] == "refund":
+                        e.append((x["at"][:10], 5, label, x["amount"], 0))
+                    else:
+                        e.append((x["at"][:10], 5, label, 0, x["amount"]))
+            e.sort(key=lambda t: (t[0], t[1]))
+            opening = round(sum(t[3] - t[4] for t in e if t[0] < frm), 2)
+            bal, rows = opening, []
+            for t in e:
+                if frm <= t[0] <= to:
+                    bal = round(bal + t[3] - t[4], 2)
+                    rows.append({"date": t[0], "doc": t[2], "debit": t[3], "credit": t[4], "balance": bal})
+            items = _open_items(d, client)
+            today = _dt.date.fromisoformat(_today())
+            ageing = {"0-29": 0.0, "30-59": 0.0, "60+": 0.0}
+            for x in items:
+                age = (today - _dt.date.fromisoformat(x["date"])).days
+                k = "60+" if age >= 60 else ("30-59" if age >= 30 else "0-29")
+                ageing[k] = round(ageing[k] + x["outstanding"], 2)
+            return {"ok": True, "client": client, "name": _client_name(cid, client), "opening": opening,
+                    "rows": rows, "closing": bal, "open": items, "credit": _credit(d, client),
+                    "ageing": ageing}
+
+    return {"ok": False, "msg": "Unknown action"}
+
+
+# ================================================================
+#  SERVICE MANUALS AND THE AI TECHNICIAN ASSISTANT
+#  ----------------------------------------------------------------
+#  The library works now: manuals are stored, their text read page
+#  by page, and searchable by model. No AI is involved in any of it.
+#
+#  The assistant is built completely and left OFF. The owner chooses
+#  the provider, enters the key, sets a spending limit and presses ON.
+#  Until then no AI service is ever contacted and nothing is spent,
+#  and every AI action here refuses \u2014 the server enforces it, not
+#  the screen.
+#
+#  Every fact in every answer carries where it came from:
+#    manual (with its page) \u00b7 this machine's history \u00b7 internet
+#    (with the link) \u00b7 general knowledge, labelled as such.
+# ================================================================
+
+import subprocess as _sp, math as _math, re as _re
+
+_ai_lock = threading.Lock()
+
+
+def _ai_dir():
+    d = os.path.join(DATA_DIR, "ai")
+    os.makedirs(os.path.join(d, "manuals"), exist_ok=True)
+    return d
+
+
+AI_DEFAULTS = {
+    "enabled": False, "provider": "", "model": "", "key_enc": "", "key_last4": "",
+    "internet": False, "daily_limit_rs": None, "per_tech_limit": None,
+    "price_in_rs": None, "price_out_rs": None,        # rupees per million tokens
+    "default_allowed": False, "reader_for_techs": False,
+    "tested_at": "", "index_built_at": "", "max_words": 180,
+}
+
+
+def ai_settings():
+    try:
+        with open(os.path.join(_ai_dir(), "settings.json"), encoding="utf-8") as fh:
+            s = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        s = {}
+    out = dict(AI_DEFAULTS); out.update(s)
+    return out
+
+
+def _ai_save_settings(s):
+    p = os.path.join(_ai_dir(), "settings.json")
+    with open(p + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(s, fh)
+    os.replace(p + ".tmp", p)
+
+
+def _ai_load(name, empty):
+    try:
+        with open(os.path.join(_ai_dir(), name), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        return empty
+
+
+def _ai_store(name, data):
+    p = os.path.join(_ai_dir(), name)
+    with open(p + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(data, fh)
+    os.replace(p + ".tmp", p)
+
+
+# ---------- the key, kept encrypted, never sent back ----------
+# A key made on this server encrypts it; only the last four characters are
+# ever shown again. The cipher is HMAC-SHA256 in counter mode with a tag, so
+# a changed byte is caught rather than decrypted into rubbish.
+
+def _master():
+    p = os.path.join(_ai_dir(), "master.key")
+    if not os.path.exists(p):
+        with open(p, "wb") as fh:
+            fh.write(secrets.token_bytes(32))
+        try:
+            os.chmod(p, 0o600)
+        except OSError:
+            pass
+    with open(p, "rb") as fh:
+        return fh.read()
+
+
+def _stream(mk, nonce, n):
+    out, i = b"", 0
+    while len(out) < n:
+        out += hmac.new(mk, nonce + i.to_bytes(8, "big"), _hl.sha256).digest(); i += 1
+    return out[:n]
+
+
+def ai_encrypt(plain):
+    mk = _master(); nonce = secrets.token_bytes(16)
+    data = plain.encode("utf-8")
+    ct = bytes(a ^ b for a, b in zip(data, _stream(mk, nonce, len(data))))
+    tag = hmac.new(mk, b"tag" + nonce + ct, _hl.sha256).digest()
+    return _b64p.b64encode(nonce + ct + tag).decode()
+
+
+def ai_decrypt(blob):
+    raw = _b64p.b64decode(blob)
+    mk = _master(); nonce, ct, tag = raw[:16], raw[16:-32], raw[-32:]
+    if not hmac.compare_digest(tag, hmac.new(mk, b"tag" + nonce + ct, _hl.sha256).digest()):
+        raise ValueError("the stored key has been tampered with")
+    return bytes(a ^ b for a, b in zip(ct, _stream(mk, nonce, len(ct)))).decode("utf-8")
+
+
+# ================================================================
+#  THE ADAPTER \u2014 the only place a provider's name, address or model
+#  appears. Switching provider is a settings change, never a code change.
+#  None of this runs until the owner has pressed ON.
+# ================================================================
+
+def _post_json(url, headers, body, timeout=60):
+    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
+                                 headers=dict({"Content-Type": "application/json"}, **headers))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return json.loads(res.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode("utf-8"))
+        except Exception:
+            msg = {}
+        err = (msg.get("error") or {}) if isinstance(msg, dict) else {}
+        raise RuntimeError("%s %s" % (e.code, err.get("message") if isinstance(err, dict) else err or e.reason))
+
+
+def _anthropic_ask(key, model, system, question, image=None, web=False, max_tokens=900):
+    content = []
+    if image:
+        mt, _, b64 = image.partition(";base64,")
+        content.append({"type": "image", "source": {"type": "base64",
+                        "media_type": mt.replace("data:", "") or "image/jpeg", "data": b64}})
+    content.append({"type": "text", "text": question})
+    body = {"model": model, "max_tokens": max_tokens, "system": system,
+            "messages": [{"role": "user", "content": content}]}
+    if web:
+        body["tools"] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
+    d = _post_json("https://api.anthropic.com/v1/messages",
+                   {"x-api-key": key, "anthropic-version": "2023-06-01"}, body)
+    text, links = [], []
+    for b in d.get("content", []):
+        if b.get("type") == "text":
+            text.append(b.get("text", ""))
+            for c in b.get("citations") or []:
+                if c.get("url") and c["url"] not in links:
+                    links.append(c["url"])
+    u = d.get("usage", {})
+    return {"text": "".join(text).strip(), "links": links,
+            "tokens_in": int(u.get("input_tokens", 0)), "tokens_out": int(u.get("output_tokens", 0))}
+
+
+def _openai_ask(key, model, system, question, image=None, web=False, max_tokens=900):
+    content = [{"type": "text", "text": question}]
+    if image:
+        content.append({"type": "image_url", "image_url": {"url": image}})
+    body = {"model": model, "max_tokens": max_tokens,
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": content}]}
+    d = _post_json("https://api.openai.com/v1/chat/completions",
+                   {"Authorization": "Bearer " + key}, body)
+    u = d.get("usage", {})
+    msg = ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    return {"text": msg.strip(), "links": [],
+            "tokens_in": int(u.get("prompt_tokens", 0)), "tokens_out": int(u.get("completion_tokens", 0))}
+
+
+AI_PROVIDERS = {
+    "anthropic": {"label": "Anthropic (Claude)", "ask": _anthropic_ask,
+                  "images": True, "web": True,
+                  "models_hint": "for example claude-sonnet-4-5"},
+    "openai":    {"label": "OpenAI (ChatGPT)", "ask": _openai_ask,
+                  "images": True, "web": False,
+                  "models_hint": "for example gpt-4o-mini"},
+}
+
+
+def ai_provider_ask(s, system, question, image=None, web=False):
+    """The one door every AI request goes through \u2014 and it will not open
+    while the switch is off."""
+    if not s.get("enabled"):
+        raise RuntimeError("The AI assistant is switched off.")
+    p = AI_PROVIDERS.get(s.get("provider"))
+    if not p or not s.get("key_enc") or not s.get("model"):
+        raise RuntimeError("The AI assistant is not set up.")
+    return p["ask"](ai_decrypt(s["key_enc"]), s["model"], system, question, image=image,
+                    web=web and p["web"])
+
+
+# ================================================================
+#  THE MANUAL LIBRARY \u2014 works now, no AI in it
+# ================================================================
+
+MANUAL_TYPES = ("Service Manual", "Parts Catalogue", "User Guide", "Troubleshooting Guide", "Bulletin")
+
+
+def _manuals():
+    return _ai_load("manuals.json", {})
+
+
+def _pages_path(mid):
+    return os.path.join(_ai_dir(), "manuals", mid + ".json")
+
+
+def _pdf_path(mid):
+    return os.path.join(_ai_dir(), "manuals", mid + ".pdf")
+
+
+def extract_pages(pdf):
+    """Every page's text, with its page number. Pages with nothing readable
+    are flagged: a scanned page, or one that is only a drawing."""
+    try:
+        info = _sp.run(["pdfinfo", pdf], capture_output=True, text=True, timeout=60).stdout
+        n = int(_re.search(r"Pages:\s+(\d+)", info).group(1))
+    except Exception:
+        return None, "The file could not be read as a PDF."
+    try:
+        raw = _sp.run(["pdftotext", "-layout", pdf, "-"], capture_output=True, text=True,
+                      timeout=600).stdout
+    except FileNotFoundError:
+        return None, "The text reader is not installed on the server (poppler-utils)."
+    except Exception as e:
+        return None, "Reading the text failed: %r" % e
+    parts = raw.split("\f")
+    pages = []
+    for i in range(n):
+        t = parts[i] if i < len(parts) else ""
+        t = _re.sub(r"[ \t]+", " ", t).strip()
+        pages.append({"page": i + 1, "text": t, "has_text": len(_re.sub(r"\W", "", t)) >= 25})
+    return pages, ""
+
+
+def _norm_model(x):
+    return _re.sub(r"[^a-z0-9]", "", str(x or "").lower())
+
+
+def _catalog(cid):
+    return {k: v for k, v in store_load(cid).get("models", {}).items() if isinstance(v, dict)}
+
+
+def _model_id_for_machine(cid, machine):
+    want = _norm_model((machine or {}).get("model"))
+    for k, m in _catalog(cid).items():
+        if _norm_model(m.get("name")) == want:
+            return k
+    return None
+
+
+def manuals_for_model(model_id):
+    return [m for m in _manuals().values() if m.get("active", True) and model_id in (m.get("models") or [])]
+
+
+# ---------- searching a manual: on this server, free ----------
+_STOP = set("""a an the is are was be to of in on at for and or it this that what how why when
+which do does can i my me we you your with from by as not no yes
+kya hai hain ho raha rahi rahe aa gaya gayi karun karo kare kaise kyun ka ki ke ko se me mein
+par pe bhi ye yeh wo woh aur ya tha thi batao bataen btao check sirf manual internet""".split())
+
+
+def _tokens(text):
+    t = str(text or "").lower()
+    t = _re.sub(r"\b(sc|sp|jc)\s*[-\s]?\s*(\d{2,4})\b", r"\1\2", t)       # SC 542 = SC542
+    return [w for w in _re.findall(r"[a-z0-9]+", t) if w not in _STOP and len(w) > 1]
+
+
+def search_pages(model_id, question, k=6):
+    """BM25 over the pages of the manuals for this model \u2014 and only those.
+    A Kyocera page applied to a Ricoh machine is worse than no answer."""
+    q = _tokens(question)
+    if not q:
+        return []
+    docs = []
+    for m in manuals_for_model(model_id):
+        try:
+            with open(_pages_path(m["id"]), encoding="utf-8") as fh:
+                pages = json.load(fh)
+        except (FileNotFoundError, ValueError, OSError):
+            continue
+        for p in pages:
+            if p.get("has_text"):
+                docs.append((m, p, _tokens(p["text"])))
+    if not docs:
+        return []
+    N = len(docs); avg = sum(len(d[2]) for d in docs) / N or 1
+    df = {}
+    for _, _, toks in docs:
+        for w in set(toks):
+            df[w] = df.get(w, 0) + 1
+    scored = []
+    for m, p, toks in docs:
+        tf = {}
+        for w in toks:
+            tf[w] = tf.get(w, 0) + 1
+        s = 0.0
+        for w in set(q):
+            if w in tf:
+                idf = _math.log(1 + (N - df[w] + 0.5) / (df[w] + 0.5))
+                s += idf * tf[w] * 2.2 / (tf[w] + 1.2 * (0.25 + 0.75 * len(toks) / avg))
+        if s > 0:
+            scored.append((s, m, p))
+    scored.sort(key=lambda x: -x[0])
+    return [{"manual": m["id"], "title": m["title"], "page": p["page"], "text": p["text"][:2500],
+             "score": round(s, 3)} for s, m, p in scored[:k]]
+
+
+# ---------- what this machine has been through ----------
+
+def machine_context(cid, complaint):
+    st = store_load(cid)
+    mid = complaint.get("machine")
+    jobs = [c for c in st.get("invoices", {}).values()
+            if isinstance(c, dict) and c.get("machine") == mid and c.get("id") != complaint.get("id")]
+    jobs.sort(key=lambda c: str(c.get("opened", "")), reverse=True)
+    users = st.get("users", {}); stock = st.get("stock", {}); parts = st.get("parts", {})
+    lines = []
+    for c in jobs[:6]:
+        fitted = []
+        for p in parts.values():
+            if isinstance(p, dict) and p.get("complaint") == c.get("id") and (p.get("installed") or 0) > 0:
+                s = stock.get(p.get("stock")) or {}
+                fitted.append("-".join(x for x in (s.get("code"), s.get("name"), s.get("quality")) if x) or "a part")
+        lines.append("%s \u00b7 %s \u00b7 fault: %s \u00b7 work done: %s%s%s" % (
+            str(c.get("resolved") or c.get("opened") or "")[:10],
+            (users.get(c.get("tech")) or {}).get("name", "?"),
+            str(c.get("what") or "")[:120], str(c.get("workDone") or "not recorded")[:160],
+            (" \u00b7 fitted: " + ", ".join(fitted)) if fitted else "",
+            (" \u00b7 counter %s" % c["counter"]) if c.get("counter") else ""))
+    reads = sorted([(str(c.get("counterAt") or c.get("opened") or ""), c["counter"]) for c in jobs
+                    if c.get("counter")] + [(str(v.get("at", "")), v["counter"]) for v in
+                    st.get("visits", {}).values() if isinstance(v, dict) and v.get("machine") == mid
+                    and v.get("counter")])
+    trend = ""
+    if len(reads) >= 2:
+        try:
+            days = (_dt.datetime.fromisoformat(reads[-1][0][:19]) - _dt.datetime.fromisoformat(reads[0][0][:19])).days
+            if days >= 7:
+                trend = "about %d pages a month" % round((reads[-1][1] - reads[0][1]) / days * 30)
+        except ValueError:
+            pass
+    return {"history": lines, "counter": reads[-1][1] if reads else None, "trend": trend}
+
+
+def stock_for(cid, text):
+    """The store count of any part the manual pages name \u2014 worked out the
+    same way the app works it out."""
+    st = store_load(cid)
+    low = str(text or "").lower()
+    out = []
+    for sid, s in st.get("stock", {}).items():
+        if not isinstance(s, dict) or not s.get("name"):
+            continue
+        if s["name"].lower() in low or (s.get("code") and str(s["code"]).lower() in low):
+            n = float(s.get("opening") or 0)
+            for b in st.get("buys", {}).values():
+                for l in (b.get("lines") or []) if isinstance(b, dict) else []:
+                    if l.get("stock") == sid:
+                        n += float(l.get("qty") or 0) - float(l.get("back") or 0)
+            for p in st.get("parts", {}).values():
+                if isinstance(p, dict) and p.get("stock") == sid:
+                    n += -float(p.get("issued") or 0) + float(p.get("rejBack") or 0) + float(p.get("returned") or 0)
+            out.append("%s (%s): %d in store" % (s["name"], s.get("quality") or "", n))
+    return out[:8]
+
+
+# ---------- the instructions every answer is held to ----------
+
+def _system_prompt(s, mode, machine_line, sources, ctx, stock, has_manual):
+    lines = [
+        "You are the technician assistant of Paragon Copier Solution, a photocopier service company in Karachi.",
+        "A technician is standing at this machine: " + machine_line + ".",
+        "Reply in the language the technician writes in (Roman Urdu, Urdu or English). Keep it short: at most %d words, for a phone screen." % int(s.get("max_words") or 180),
+        "Shape: Likely cause \u00b7 Check first (numbered) \u00b7 Parts usually involved \u00b7 This machine before (if relevant) \u00b7 Safety.",
+        "EVERY statement of fact must end with its source label, exactly one of:",
+        "  [M#] for a manual page given below (use the id exactly as given, e.g. [M2]);",
+        "  [HISTORY] for this machine's own records given below;",
+        "  [WEB] followed by the link, for an internet source;",
+        "  [GENERAL] for your own general knowledge, which is NOT from the manual.",
+        "Never cite a manual page that is not in the list below. Never invent a page number.",
+        "Part numbers ONLY from a manual page below \u2014 never from general knowledge.",
+        "SC code meanings ONLY from a manual page below when a manual exists for this model.",
+        "Always include the manual's safety warnings for any procedure: power off, cool-down, high voltage.",
+        "Never tell anyone to bypass a safety interlock. For high voltage or anything specialist, say to call the office.",
+        "If something would void the warranty, say so plainly.",
+        "If you do not have a reliable answer, say so and tell him to call the office. Never guess.",
+    ]
+    if mode == "manual":
+        lines.append("MODE: MANUAL ONLY. Answer ONLY from the manual pages below. If they do not cover it, "
+                     "say exactly: 'The manual does not cover this. I don't have a reliable answer. Call the office.' "
+                     "Do not use general knowledge or the internet at all.")
+    elif mode == "internet":
+        lines.append("MODE: INTERNET ONLY. Use web search; every claim carries [WEB] and its link.")
+    else:
+        lines.append("MODE: MANUAL FIRST. Use the manual pages first. Only for what they do not cover, you may use "
+                     "the internet ([WEB] + link) \u2014 kept clearly separate from the manual.")
+    if not has_manual:
+        lines.append("There is NO manual in the library for this model. Say so, and label everything [GENERAL] or [WEB].")
+    if sources:
+        lines.append("\nMANUAL PAGES (the only pages you may cite):")
+        for i, x in enumerate(sources, 1):
+            lines.append("[M%d] %s, page %d:\n%s" % (i, x["title"], x["page"], x["text"]))
+    if ctx["history"] or ctx["trend"] or ctx["counter"]:
+        lines.append("\nTHIS MACHINE'S HISTORY (cite as [HISTORY]):")
+        if ctx["counter"]:
+            lines.append("Current counter %s%s." % (ctx["counter"], (", " + ctx["trend"]) if ctx["trend"] else ""))
+        lines += ctx["history"]
+    if stock:
+        lines.append("\nIN THE STORE NOW (cite as [HISTORY]): " + "; ".join(stock))
+    return "\n".join(lines)
+
+
+def attribute(text, sources, links):
+    """Turn the labels into what the technician reads, and check every
+    manual citation points at a page that was actually given."""
+    bad = []
+    def m_sub(mt):
+        i = int(mt.group(1))
+        if 1 <= i <= len(sources):
+            x = sources[i - 1]
+            return "\U0001F4D8 _%s, p. %d_" % (x["title"], x["page"])
+        bad.append(mt.group(0))
+        return "\u26A0\uFE0F _(a citation that could not be checked was removed)_"
+    out = _re.sub(r"\[M(\d+)\]", m_sub, text)
+    out = out.replace("[HISTORY]", "\U0001F527 _this machine's history_")
+    out = out.replace("[GENERAL]", "\U0001F4AD _general knowledge \u2014 not from the manual_")
+    out = _re.sub(r"\[WEB\]\s*(\(?https?://\S+?\)?)(?=[\s.,;]|$)", lambda m: "\U0001F310 _" + m.group(1).strip("()") + "_", out)
+    out = out.replace("[WEB]", "\U0001F310 _internet_")
+    used = sorted({int(n) for n in _re.findall(r"\[M(\d+)\]", text) if 1 <= int(n) <= len(sources)})
+    cited = [{"kind": "manual", "title": sources[i - 1]["title"], "page": sources[i - 1]["page"],
+              "manual": sources[i - 1]["manual"]} for i in used]
+    cited += [{"kind": "web", "url": u} for u in links]
+    return out, cited, bad
+
+
+def _usage_today(usage, day, uid=None):
+    d = usage.get(day, {})
+    if uid:
+        return d.get(uid, {"questions": 0, "tokens": 0, "cost": 0.0})
+    return {"questions": sum(v["questions"] for v in d.values()),
+            "tokens": sum(v["tokens"] for v in d.values()),
+            "cost": round(sum(v["cost"] for v in d.values()), 2)}
+
+
+# ================================================================
+#  THE ACTIONS
+# ================================================================
+
+def ai_route(cid, req, u):
+    act = req.get("action")
+    admin = u.get("role") == "admin"; librarian = allowed(cid, u, "manuals")
+    s = ai_settings()
+
+    # --- what a phone is allowed to know about the switch: never the key ---
+    if act == "ai.status":
+        p = AI_PROVIDERS.get(s["provider"]) or {}
+        return {"ok": True, "enabled": bool(s["enabled"]),
+                "internet": bool(s["enabled"] and s["internet"] and p.get("web")),
+                "images": bool(s["enabled"] and p.get("images")),
+                "reader": bool(s["reader_for_techs"]), "default_allowed": bool(s["default_allowed"])}
+
+    # --- the library ---
+    if act == "man.list":
+        ms = sorted(_manuals().values(), key=lambda m: m.get("title", ""))
+        if not librarian:
+            if not s["reader_for_techs"]:
+                return {"ok": False, "msg": "The manual reader is not switched on."}
+            mine = _models_on_my_jobs(cid, u)
+            ms = [m for m in ms if m.get("active", True) and set(m.get("models") or []) & mine]
+        return {"ok": True, "manuals": ms, "types": MANUAL_TYPES}
+
+    if act == "man.coverage":
+        if not librarian:
+            return {"ok": False, "msg": "For the admin."}
+        cat = _catalog(cid)
+        have = set(k for m in _manuals().values() if m.get("active", True) for k in (m.get("models") or []))
+        return {"ok": True, "missing": sorted([{"id": k, "name": v.get("name")} for k, v in cat.items()
+                                               if k not in have], key=lambda x: x["name"] or "")}
+
+    if act in ("man.save", "man.remove"):
+        if not librarian:
+            return {"ok": False, "msg": "Manuals are managed by the admin."}
+        with _ai_lock:
+            ms = _manuals()
+            m = ms.get(str(req.get("id") or ""))
+            if not m:
+                return {"ok": False, "msg": "No such manual."}
+            if act == "man.remove":
+                m["active"] = False; m["removedBy"] = u.get("name"); m["removedAt"] = pk_now().isoformat(timespec="seconds")
+            else:
+                if not str(req.get("title") or "").strip():
+                    return {"ok": False, "msg": "A manual needs its title."}
+                if req.get("type") not in MANUAL_TYPES:
+                    return {"ok": False, "msg": "Choose the kind of manual."}
+                models = [x for x in (req.get("models") or []) if x in _catalog(cid)]
+                if not models:
+                    return {"ok": False, "msg": "Choose at least one machine model from the catalogue."}
+                m.update({"title": str(req["title"]).strip(), "type": req["type"], "models": models,
+                          "language": str(req.get("language") or "English"),
+                          "version": str(req.get("version") or ""), "notes": str(req.get("notes") or ""),
+                          "active": True})
+            _ai_store("manuals.json", ms)
+        return {"ok": True}
+
+    # --- the settings: the admin only, and the key never comes back ---
+    if act == "ai.settings":
+        if not admin:
+            return {"ok": False, "msg": "AI settings are for the admin."}
+        if req.get("set"):
+            with _ai_lock:
+                s = ai_settings()
+                for k in ("provider", "model"):
+                    if k in req:
+                        v = str(req[k] or "").strip()
+                        if k == "provider" and v and v not in AI_PROVIDERS:
+                            return {"ok": False, "msg": "Unknown provider."}
+                        if s.get(k) != v:
+                            s[k] = v; s["tested_at"] = ""
+                for k in ("internet", "default_allowed", "reader_for_techs"):
+                    if k in req:
+                        s[k] = bool(req[k])
+                for k in ("daily_limit_rs", "per_tech_limit", "price_in_rs", "price_out_rs", "max_words"):
+                    if k in req:
+                        v = req[k]
+                        s[k] = float(v) if v not in (None, "") and float(v) > 0 else None
+                if req.get("key"):
+                    k = str(req["key"]).strip()
+                    s["key_enc"] = ai_encrypt(k); s["key_last4"] = k[-4:]; s["tested_at"] = ""
+                if s["enabled"] and not (s["provider"] and s["key_enc"] and s["model"] and s["daily_limit_rs"]):
+                    s["enabled"] = False                  # it cannot stay on without its ceiling
+                _ai_save_settings(s)
+        out = {k: v for k, v in s.items() if k != "key_enc"}
+        out["has_key"] = bool(s["key_enc"])
+        out["providers"] = {k: {"label": v["label"], "images": v["images"], "web": v["web"],
+                                "models_hint": v["models_hint"]} for k, v in AI_PROVIDERS.items()}
+        return {"ok": True, "settings": out}
+
+    if act == "ai.test":
+        if not admin:
+            return {"ok": False, "msg": "For the admin."}
+        p = AI_PROVIDERS.get(s["provider"])
+        if not p or not s["key_enc"] or not s["model"]:
+            return {"ok": False, "msg": "Choose the provider and the model, and enter the key, first."}
+        try:
+            r = p["ask"](ai_decrypt(s["key_enc"]), s["model"], "Reply with the single word OK.", "OK?",
+                         max_tokens=5)
+        except Exception as e:
+            return {"ok": False, "msg": "The connection failed: %s" % e}
+        with _ai_lock:
+            s = ai_settings(); s["tested_at"] = pk_now().isoformat(timespec="seconds"); _ai_save_settings(s)
+        return {"ok": True, "msg": "Connected. The provider answered: %s" % r["text"][:40]}
+
+    if act == "ai.estimate":
+        if not admin:
+            return {"ok": False, "msg": "For the admin."}
+        ms = [m for m in _manuals().values() if m.get("active", True)]
+        return {"ok": True, "manuals": len(ms), "pages": sum(m.get("searchable", 0) for m in ms),
+                "cost_rs": 0, "note": "The library is searched on your own server, not by the AI "
+                "provider, so making it searchable costs nothing. Only questions cost money."}
+
+    if act == "ai.switch":
+        if not admin:
+            return {"ok": False, "msg": "Only the admin turns the assistant on or off."}
+        with _ai_lock:
+            s = ai_settings()
+            if req.get("on"):
+                need = []
+                if not s["provider"]: need.append("the provider")
+                if not s["key_enc"]: need.append("the key")
+                if not s["model"]: need.append("the model")
+                if not s["daily_limit_rs"]: need.append("the daily spending limit")
+                if not s["price_in_rs"] or not s["price_out_rs"]: need.append("the token prices, so spending can be counted")
+                if not s["tested_at"]: need.append("a successful Test connection")
+                if need:
+                    return {"ok": False, "msg": "It cannot be switched on without " + ", ".join(need) + "."}
+                s["enabled"] = True
+                s["index_built_at"] = s["index_built_at"] or pk_now().isoformat(timespec="seconds")
+            else:
+                s["enabled"] = False
+            _ai_save_settings(s)
+        return {"ok": True, "enabled": s["enabled"]}
+
+    if act == "ai.usage":
+        if not admin:
+            return {"ok": False, "msg": "For the admin."}
+        usage = _ai_load("usage.json", {})
+        users = store_load(cid).get("users", {})
+        month = _today()[:7]
+        per = {}
+        for day, d in usage.items():
+            if day.startswith(month):
+                for uid, v in d.items():
+                    x = per.setdefault(uid, {"name": (users.get(uid) or {}).get("name", uid),
+                                             "questions": 0, "cost": 0.0})
+                    x["questions"] += v["questions"]; x["cost"] = round(x["cost"] + v["cost"], 2)
+        return {"ok": True, "today": _usage_today(usage, _today()), "month": {
+                "questions": sum(v["questions"] for v in per.values()),
+                "cost": round(sum(v["cost"] for v in per.values()), 2)}, "people": list(per.values())}
+
+    # --- the conversation kept with the complaint ---
+    if act == "ai.convo":
+        c = store_load(cid).get("invoices", {}).get(str(req.get("complaint") or ""))
+        if not c:
+            return {"ok": False, "msg": "No such complaint."}
+        if not admin and c.get("tech") != u["id"]:
+            return {"ok": False, "msg": "Only your own complaints."}
+        conv = _ai_load("convos.json", {}).get(c["id"])
+        st = store_load(cid)
+        machine = st.get("items", {}).get(c.get("machine")) or {}
+        mid = _model_id_for_machine(cid, machine)
+        mans = [{"title": m["title"], "type": m.get("type"), "scanned": m.get("scanned")}
+                for m in (manuals_for_model(mid) if mid else [])]
+        return {"ok": True, "convo": conv, "manuals": mans,
+                "machine": " \u00b7 ".join(x for x in (machine.get("model"), machine.get("serial")) if x),
+                "place": " \u00b7 ".join(x for x in ((st.get("clients", {}).get(c.get("client")) or {}).get("name"),
+                                                      machine.get("dept"), machine.get("place")) if x)}
+
+    # --- asking: every condition checked here, whatever the screen showed ---
+    if act == "ai.ask":
+        if not s["enabled"]:
+            return {"ok": False, "off": True, "msg": "The AI assistant is switched off."}
+        st = store_load(cid)
+        c = st.get("invoices", {}).get(str(req.get("complaint") or ""))
+        if not c:
+            return {"ok": False, "msg": "No such complaint."}
+        if not c.get("aiAllowed"):
+            return {"ok": False, "msg": "The assistant is not allowed on this complaint."}
+        if c.get("tech") != u["id"]:
+            return {"ok": False, "msg": "Only the technician on this complaint can ask."}
+        if c.get("status") not in ("started", "parts") or c.get("locked"):
+            return {"ok": False, "msg": "Press Start the job first \u2014 the assistant is for use at the machine."}
+        question = str(req.get("question") or "").strip()
+        if not question:
+            return {"ok": False, "msg": "Type the question."}
+        usage = _ai_load("usage.json", {})
+        day = _today()
+        mine = _usage_today(usage, day, u["id"])
+        if s["per_tech_limit"] and mine["questions"] >= s["per_tech_limit"]:
+            return {"ok": False, "limit": True, "msg": "You have reached today's question limit. Call the office."}
+        if s["daily_limit_rs"] and _usage_today(usage, day)["cost"] >= s["daily_limit_rs"]:
+            _limit_note(cid, day)
+            return {"ok": False, "limit": True, "msg": "The assistant has reached today's limit. Call the office."}
+
+        p = AI_PROVIDERS.get(s["provider"]) or {}
+        low = question.lower()
+        mode = req.get("mode") if req.get("mode") in ("manual", "internet", "both") else "both"
+        if "sirf manual" in low or "manual only" in low or "only manual" in low:
+            mode = "manual"                       # said in words: obeyed
+        elif "sirf internet" in low or "internet only" in low:
+            mode = "internet"
+        can_web = bool(s["internet"] and p.get("web"))
+        if mode in ("internet", "both") and not can_web:
+            mode = "manual" if mode == "both" else mode
+            if mode == "internet":
+                return {"ok": False, "msg": "Internet search is not switched on."}
+
+        machine = st.get("items", {}).get(c.get("machine")) or {}
+        model_id = _model_id_for_machine(cid, machine)
+        has_manual = bool(model_id and manuals_for_model(model_id))
+        sources = search_pages(model_id, question) if (model_id and mode != "internet") else []
+        machine_line = " \u00b7 ".join(x for x in (machine.get("model"), machine.get("serial"),
+                                     (st.get("clients", {}).get(c.get("client")) or {}).get("name")) if x)
+
+        if mode == "manual" and not sources:
+            # nothing to answer from: said plainly, and nothing spent
+            answer = ("The manual does not cover this. I don't have a reliable answer. Call the office."
+                      if has_manual else
+                      "There is no manual in the library for this model, and you asked for the manual only. "
+                      "I don't have a reliable answer. Call the office.")
+            return _ai_keep(cid, c, u, mode, question, req.get("photo"), answer, [], [], 0, 0, 0.0, day)
+
+        ctx = machine_context(cid, c)
+        stock = stock_for(cid, " ".join(x["text"] for x in sources))
+        system = _system_prompt(s, mode, machine_line, sources, ctx, stock, has_manual)
+        photo = req.get("photo") if p.get("images") else None
+        try:
+            r = ai_provider_ask(s, system, question, image=photo, web=(mode in ("internet", "both") and can_web))
+        except Exception as e:
+            return {"ok": False, "msg": "The assistant could not answer: %s" % e}
+        text, cited, bad = attribute(r["text"], sources, r["links"])
+        cost = (r["tokens_in"] * (s["price_in_rs"] or 0) + r["tokens_out"] * (s["price_out_rs"] or 0)) / 1e6
+        return _ai_keep(cid, c, u, mode, question, photo, text, cited, bad,
+                        r["tokens_in"], r["tokens_out"], cost, day)
+
+    return {"ok": False, "msg": "Unknown action"}
+
+
+def _models_on_my_jobs(cid, u):
+    st = store_load(cid)
+    out = set()
+    for c in st.get("invoices", {}).values():
+        if isinstance(c, dict) and c.get("tech") == u["id"] and c.get("status") in ("pending", "started", "parts"):
+            mid = _model_id_for_machine(cid, st.get("items", {}).get(c.get("machine")))
+            if mid:
+                out.add(mid)
+    return out
+
+
+def _limit_note(cid, day):
+    with _ai_lock:
+        seen = _ai_load("limit_told.json", {})
+        if seen.get("day") == day:
+            return
+        _ai_store("limit_told.json", {"day": day})
+    _tell_admins(cid, "AI assistant paused for today", "The daily spending limit was reached.")
+
+
+def _ai_keep(cid, c, u, mode, question, photo, answer, cited, bad, tin, tout, cost, day):
+    """Every message is kept: for review, for cost, and so that when someone
+    says 'the AI told me to', the exact answer can be read back."""
+    stamp = pk_now().isoformat(timespec="seconds")
+    with _ai_lock:
+        convos = _ai_load("convos.json", {})
+        conv = convos.setdefault(c["id"], {"complaint": c["id"], "tech": u["id"], "started": stamp, "messages": []})
+        conv["mode"] = mode
+        conv["messages"].append({"role": "technician", "text": question, "photo": bool(photo), "at": stamp})
+        conv["messages"].append({"role": "assistant", "text": answer, "sources": cited, "unverified": bad,
+                                 "tokens": tin + tout, "cost": round(cost, 4), "at": stamp})
+        _ai_store("convos.json", convos)
+        if tin or tout:
+            usage = _ai_load("usage.json", {})
+            x = usage.setdefault(day, {}).setdefault(u["id"], {"questions": 0, "tokens": 0, "cost": 0.0})
+            x["questions"] += 1; x["tokens"] += tin + tout; x["cost"] = round(x["cost"] + cost, 4)
+            _ai_store("usage.json", usage)
+    return {"ok": True, "answer": answer, "sources": cited, "unverified": bad, "mode": mode}
+
+
+# ---------- uploading a manual, in pieces, so a large file can go on a phone connection ----------
+
+_uploads = {}
+
+
+def manual_upload(cid, req, u):
+    if not allowed(cid, u, "manuals"):
+        return {"ok": False, "msg": "Manuals are uploaded by the admin."}
+    step = req.get("step")
+    if step == "begin":
+        if not str(req.get("title") or "").strip() or req.get("type") not in MANUAL_TYPES:
+            return {"ok": False, "msg": "A manual needs its title and its kind."}
+        models = [x for x in (req.get("models") or []) if x in _catalog(cid)]
+        if not models:
+            return {"ok": False, "msg": "Choose at least one machine model from the catalogue."}
+        mid = secrets.token_hex(6)
+        _uploads[mid] = {"meta": {"id": mid, "title": str(req["title"]).strip(), "type": req["type"],
+                                  "models": models, "language": str(req.get("language") or "English"),
+                                  "version": str(req.get("version") or ""), "notes": str(req.get("notes") or ""),
+                                  "active": True, "by": u.get("name")},
+                         "parts": {}, "at": time.time()}
+        return {"ok": True, "id": mid}
+    up = _uploads.get(str(req.get("id") or ""))
+    if not up:
+        return {"ok": False, "msg": "That upload has expired. Start again."}
+    if step == "chunk":
+        try:
+            up["parts"][int(req["i"])] = _b64p.b64decode(str(req.get("data") or ""))
+        except Exception:
+            return {"ok": False, "msg": "A piece of the file could not be read."}
+        return {"ok": True}
+    if step == "finish":
+        n = int(req.get("count") or 0)
+        if n < 1 or any(i not in up["parts"] for i in range(n)):
+            return {"ok": False, "msg": "Some of the file did not arrive. Try again."}
+        mid = up["meta"]["id"]
+        data = b"".join(up["parts"][i] for i in range(n))
+        if not data.startswith(b"%PDF"):
+            _uploads.pop(mid, None)
+            return {"ok": False, "msg": "That is not a PDF file."}
+        with open(_pdf_path(mid), "wb") as fh:
+            fh.write(data)
+        pages, err = extract_pages(_pdf_path(mid))
+        if pages is None:
+            os.remove(_pdf_path(mid)); _uploads.pop(mid, None)
+            return {"ok": False, "msg": err}
+        with open(_pages_path(mid), "w", encoding="utf-8") as fh:
+            json.dump(pages, fh)
+        readable = sum(1 for p in pages if p["has_text"])
+        meta = up["meta"]
+        meta.update({"pages": len(pages), "searchable": readable,
+                     "scanned": readable < len(pages) * 0.5,
+                     "blank_pages": [p["page"] for p in pages if not p["has_text"]][:400],
+                     "size": len(data), "at": pk_now().isoformat(timespec="seconds")})
+        with _ai_lock:
+            ms = _manuals(); ms[mid] = meta; _ai_store("manuals.json", ms)
+        _uploads.pop(mid, None)
+        warn = ""
+        if meta["scanned"]:
+            warn = ("This manual appears to be scanned images \u2014 %d of %d pages have no readable text. "
+                    "It will not be searchable until text recognition is applied." % (len(pages) - readable, len(pages)))
+        return {"ok": True, "manual": meta, "warning": warn}
+    return {"ok": False, "msg": "Unknown step"}
+
+
+def manual_file_allowed(cid, mid, token):
+    u = _session(cid, {"token": token})
+    if not u:
+        return False
+    m = _manuals().get(mid)
+    if not m or not m.get("active", True):
+        return False
+    if allowed(cid, u, "manuals"):
+        return True
+    return bool(ai_settings()["reader_for_techs"]) and bool(set(m.get("models") or []) & _models_on_my_jobs(cid, u))
+
+
+# ================================================================
+#  MY DAY \u2014 each person's own
+#  ----------------------------------------------------------------
+#  Goals with a target, daily habits, private tasks, weekly reviews
+#  and progress photos. Kept here per person and handed to that
+#  person alone. A goal marked "shared" is shown to the partners so
+#  they can cheer it on; a photo is never shown to anyone else.
+# ================================================================
+
+_me_lock = threading.Lock()
+ME_KINDS = ("goals", "checks", "habits", "hlog", "ptasks", "reviews")
+
+
+def _me_dir():
+    d = os.path.join(DATA_DIR, "me")
+    os.makedirs(os.path.join(d, "photos"), exist_ok=True)
+    return d
+
+
+def _me_path(uid):
+    return os.path.join(_me_dir(), _re.sub(r"[^A-Za-z0-9_-]", "", str(uid)) + ".json")
+
+
+def me_load(uid):
+    try:
+        with open(_me_path(uid), encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        d = {}
+    for k in ME_KINDS:
+        d.setdefault(k, {})
+    d.setdefault("cheers", [])
+    return d
+
+
+def me_save(uid, d):
+    p = _me_path(uid)
+    with open(p + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(d, fh)
+    os.replace(p + ".tmp", p)
+
+
+def _partners(cid, u):
+    return [x for x in store_load(cid).get("users", {}).values()
+            if isinstance(x, dict) and x.get("active", True) and x.get("id") != u["id"]
+            and x.get("role") in ("admin", "supervisor")]
+
+
+def me_route(cid, req, u):
+    act = req.get("action")
+    uid = u["id"]
+
+    if act == "me.get":
+        d = me_load(uid)
+        shared = []
+        if u.get("role") in ("admin", "supervisor"):
+            for p in _partners(cid, u):
+                pd = me_load(p["id"])
+                for g in pd["goals"].values():
+                    if g.get("shared") and not g.get("gone"):
+                        checks = [dict(c, photo="") for c in pd["checks"].values() if c.get("goal") == g["id"]]
+                        shared.append({"owner": p["id"], "ownerName": p.get("name"), "goal": g, "checks": checks,
+                                       "cheers": [c for c in pd["cheers"] if c.get("goal") == g["id"]][-20:]})
+        return {"ok": True, "mine": {k: d[k] for k in ME_KINDS}, "cheers": d["cheers"][-50:], "shared": shared}
+
+    if act == "me.put":
+        # newest write wins, record by record, as the shared data does
+        sent = req.get("records") or {}
+        with _me_lock:
+            d = me_load(uid)
+            for k in ME_KINDS:
+                for rid, rec in (sent.get(k) or {}).items():
+                    if not isinstance(rec, dict):
+                        continue
+                    have = d[k].get(rid)
+                    if have and str(have.get("_at") or "") >= str(rec.get("_at") or ""):
+                        continue
+                    d[k][rid] = rec
+            me_save(uid, d)
+        return {"ok": True}
+
+    if act == "me.photo.put":
+        data = str(req.get("data") or "")
+        m = _re.match(r"data:image/(jpeg|png|webp);base64,(.+)$", data, _re.S)
+        if not m:
+            return {"ok": False, "msg": "That is not a photo."}
+        raw = _b64p.b64decode(m.group(2))
+        if len(raw) > 3 * 1024 * 1024:
+            return {"ok": False, "msg": "The photo is too large."}
+        pid = secrets.token_hex(8)
+        folder = os.path.join(_me_dir(), "photos", _re.sub(r"[^A-Za-z0-9_-]", "", uid))
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, pid + "." + m.group(1).replace("jpeg", "jpg")), "wb") as fh:
+            fh.write(raw)
+        return {"ok": True, "id": pid}
+
+    if act == "me.photo.get":
+        # a person's photo is theirs alone: looked up only in their own folder
+        pid = _re.sub(r"[^a-f0-9]", "", str(req.get("id") or ""))
+        folder = os.path.join(_me_dir(), "photos", _re.sub(r"[^A-Za-z0-9_-]", "", uid))
+        for ext, mt in (("jpg", "jpeg"), ("png", "png"), ("webp", "webp")):
+            f = os.path.join(folder, pid + "." + ext)
+            if pid and os.path.exists(f):
+                with open(f, "rb") as fh:
+                    return {"ok": True, "data": "data:image/%s;base64,%s" % (mt, _b64p.b64encode(fh.read()).decode())}
+        return {"ok": False, "msg": "Not found."}
+
+    if act == "me.cheer":
+        owner = str(req.get("owner") or "")
+        text = str(req.get("text") or "\U0001F44F").strip()[:140]
+        if (u.get("role") not in ("admin", "supervisor") or owner == uid
+                or owner not in [p["id"] for p in _partners(cid, u)]):
+            return {"ok": False, "msg": "Only a partner can cheer a shared goal."}
+        with _me_lock:
+            d = me_load(owner)
+            g = d["goals"].get(str(req.get("goal") or ""))
+            if not g or not g.get("shared"):
+                return {"ok": False, "msg": "That goal is not shared."}
+            d["cheers"].append({"goal": g["id"], "from": u.get("name"), "text": text,
+                                "at": pk_now().isoformat(timespec="seconds")})
+            d["cheers"] = d["cheers"][-200:]
+            me_save(owner, d)
+        _note_to(cid, owner, u.get("name") + " cheered your goal", g.get("title", "") + " \u2014 " + text)
+        return {"ok": True}
+
+    return {"ok": False, "msg": "Unknown action"}
+
+
+def _note_to(cid, uid, what, detail):
+    stamp = pk_now().isoformat(timespec="seconds")
+    nid = "me" + secrets.token_hex(6)
+    store_push(cid, {"records": {"notes": {nid: {"id": nid, "to": uid, "what": what, "detail": detail,
+                                                  "link": "", "at": stamp, "read": False, "_at": stamp}}}})
+
+
+def _habit_done(d, hid, day):
+    return bool(d["hlog"].get(hid + "|" + day)) and not d["hlog"].get(hid + "|" + day, {}).get("gone")
+
+
+def me_watch(cid="main"):
+    """The three reminders: the morning list, the evening habits still to
+    do, and the Sunday review. Each person who keeps a My Day gets them."""
+    sent = {}
+    while True:
+        try:
+            now = pk_now(); day = now.strftime("%Y-%m-%d"); hm = now.strftime("%H:%M")
+            st = store_load(cid)
+            for u in st.get("users", {}).values():
+                if not isinstance(u, dict) or not u.get("active", True) or u.get("role") not in ("admin", "supervisor"):
+                    continue
+                d = me_load(u["id"])
+                habits = [h for h in d["habits"].values() if not h.get("gone")]
+                if not habits and not d["ptasks"] and not d["goals"]:
+                    continue
+                shared_tasks = [t for t in st.get("tasks", {}).values() if isinstance(t, dict)
+                                and t.get("to") == u["id"] and t.get("state") in ("mine", "offered")
+                                and str(t.get("when") or "")[:10] <= day and t.get("kind") != "meeting"]
+                own = [t for t in d["ptasks"].values() if not t.get("done") and not t.get("gone")
+                       and str(t.get("when") or "")[:10] <= day]
+                key = u["id"] + day
+                if hm >= "08:30" and sent.get(key + "am") is None:
+                    sent[key + "am"] = 1
+                    n = len(shared_tasks) + len(own)
+                    if n or habits:
+                        _note_to(cid, u["id"], "Your day", "%d task(s) and %d habit(s) today" % (n, len(habits)))
+                if hm >= "19:30" and sent.get(key + "pm") is None:
+                    sent[key + "pm"] = 1
+                    left = [h["name"] for h in habits if not _habit_done(d, h["id"], day)]
+                    if left:
+                        _note_to(cid, u["id"], "Still to do today", ", ".join(left[:4]))
+                if now.weekday() == 6 and hm >= "18:00" and sent.get(key + "wk") is None:
+                    sent[key + "wk"] = 1
+                    if d["goals"]:
+                        _note_to(cid, u["id"], "Your weekly review", "How did the week go, and what is next?")
+        except Exception as e:
+            note("ME WATCH", repr(e))
+        time.sleep(300)
+
+
+# ================================================================
+#  VOICE NOTES ON A COMPLAINT
+#  ----------------------------------------------------------------
+#  A client's voice note, or the office's own, kept here as a file.
+#  The complaint carries only its id, so the shared data every phone
+#  pulls stays small; the technician's phone fetches the sound when
+#  he presses play, with his own session.
+# ================================================================
+
+VOICE_TYPES = {"audio/webm": "webm", "audio/ogg": "ogg", "audio/mp4": "m4a", "audio/mpeg": "mp3",
+               "audio/aac": "aac", "audio/x-m4a": "m4a", "audio/wav": "wav", "audio/amr": "amr",
+               "audio/opus": "opus", "video/webm": "webm", "audio/3gpp": "3gp"}
+
+
+def _voice_dir():
+    d = os.path.join(DATA_DIR, "voice")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def voice_put(cid, req, u):
+    data = str(req.get("data") or "")
+    m = _re.match(r"data:([a-z0-9/+.\-]+)(?:;[^,]*)?;base64,(.+)$", data, _re.S)
+    if not m:
+        return {"ok": False, "msg": "That is not a sound file."}
+    mime = m.group(1).split(";")[0].lower()
+    ext = VOICE_TYPES.get(mime)
+    if not ext:
+        return {"ok": False, "msg": "That kind of sound file is not taken (%s)." % mime}
+    raw = _b64p.b64decode(m.group(2))
+    if len(raw) > 6 * 1024 * 1024:
+        return {"ok": False, "msg": "The voice note is too long."}
+    vid = secrets.token_hex(8)
+    with open(os.path.join(_voice_dir(), vid + "." + ext), "wb") as fh:
+        fh.write(raw)
+    return {"ok": True, "id": vid + "." + ext}
+
+
+def voice_file(name):
+    if not _re.fullmatch(r"[0-9a-f]{16}\.[a-z0-9]{2,4}", str(name or "")):
+        return None
+    f = os.path.join(_voice_dir(), name)
+    return f if os.path.exists(f) else None
+
+
+# ================================================================
+#  TEAM CHAT
+#  ----------------------------------------------------------------
+#  One-to-one and group conversations between the staff: text,
+#  emoji, reactions, replies, voice notes and photos, with sent and
+#  read ticks. A message reaches only the members of its
+#  conversation \u2014 checked here on every read and every write,
+#  never left to a phone.
+# ================================================================
+
+_chat_lock = threading.Lock()
+CHAT_TEAM = "team"
+CHAT_REACTS = ("\U0001F44D", "\u2764\uFE0F", "\U0001F602", "\U0001F62E", "\U0001F622", "\U0001F64F")
+
+
+# ---------- who is connected ----------
+# Every request a signed-in phone makes marks its person as seen. An app in
+# front of its user speaks every half minute, so "online" is "seen in the last
+# ninety seconds"; putting the app away says so at once.
+_presence = {}
+_presence_saved = [0.0]
+
+
+def presence_touch(uid, state="on"):
+    _presence[uid] = {"at": pk_now().isoformat(timespec="seconds"), "state": state}
+    if time.time() - _presence_saved[0] > 60 or state == "off":
+        _presence_saved[0] = time.time()
+        try:
+            p = os.path.join(DATA_DIR, "presence.json")
+            with open(p + ".tmp", "w", encoding="utf-8") as fh:
+                json.dump(_presence, fh)
+            os.replace(p + ".tmp", p)
+        except OSError:
+            pass
+
+
+def presence_of(uid):
+    if not _presence:
+        try:
+            with open(os.path.join(DATA_DIR, "presence.json"), encoding="utf-8") as fh:
+                _presence.update(json.load(fh))
+        except (FileNotFoundError, ValueError, OSError):
+            pass
+    p = _presence.get(uid)
+    if not p:
+        return {"online": False, "at": ""}
+    age = (pk_now() - _dt.datetime.fromisoformat(p["at"])).total_seconds()
+    return {"online": p.get("state") == "on" and age < 90, "at": p["at"]}
+
+
+def _chat_dir():
+    d = os.path.join(DATA_DIR, "chat")
+    os.makedirs(os.path.join(d, "photos"), exist_ok=True)
+    return d
+
+
+def _chat_convs():
+    try:
+        with open(os.path.join(_chat_dir(), "convs.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        return {}
+
+
+def _chat_save_convs(c):
+    p = os.path.join(_chat_dir(), "convs.json")
+    with open(p + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(c, fh)
+    os.replace(p + ".tmp", p)
+
+
+def _chat_file(cid_):
+    return os.path.join(_chat_dir(), _re.sub(r"[^A-Za-z0-9_-]", "", cid_) + ".json")
+
+
+def _chat_load(cid_):
+    try:
+        with open(_chat_file(cid_), encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        d = {}
+    d.setdefault("msgs", []); d.setdefault("read", {})
+    return d
+
+
+def _chat_store(cid_, d):
+    p = _chat_file(cid_)
+    with open(p + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(d, fh)
+    os.replace(p + ".tmp", p)
+
+
+def _staff(cid):
+    return {x["id"]: x for x in store_load(cid).get("users", {}).values()
+            if isinstance(x, dict) and x.get("active", True) and x.get("role") != "operator"}
+
+
+def _conv_members(cid, conv):
+    """The team group is everyone on the staff, as it stands today."""
+    if conv["id"] == CHAT_TEAM:
+        return list(_staff(cid).keys())
+    return list(conv.get("members") or [])
+
+
+def _conv_for(cid, u, conv_id):
+    convs = _chat_convs()
+    if conv_id == CHAT_TEAM and CHAT_TEAM not in convs:
+        convs[CHAT_TEAM] = {"id": CHAT_TEAM, "kind": "group", "name": "Paragon Team", "members": [], "by": "", "at": ""}
+        _chat_save_convs(convs)
+    conv = convs.get(conv_id)
+    if not conv or u["id"] not in _conv_members(cid, conv):
+        return None
+    return conv
+
+
+def _conv_title(cid, conv, uid):
+    if conv["kind"] == "dm":
+        staff = _staff(cid)
+        other = [m for m in conv["members"] if m != uid]
+        return (staff.get(other[0]) or {}).get("name", "Someone") if other else "Me"
+    return conv.get("name") or "Group"
+
+
+def _preview(m):
+    if m.get("gone"):
+        return "Message deleted"
+    if m.get("voice"):
+        return "\U0001F3A4 Voice note"
+    if m.get("photo"):
+        return "\U0001F4F7 Photo" + ((" \u2014 " + m["text"][:40]) if m.get("text") else "")
+    if m.get("file"):
+        return "\U0001F4C4 " + m["file"].get("name", "File")
+    return (m.get("text") or "")[:80]
+
+
+def chat_route(cid, req, u):
+    act = req.get("action"); uid = u["id"]
+    if u.get("role") == "operator":
+        return {"ok": False, "msg": "Chat is for the staff."}
+    aset = admin_settings()
+    if not aset["chat_on"]:
+        return {"ok": False, "off": True, "msg": "Chat is switched off by the admin."}
+    stamp = pk_now().isoformat(timespec="milliseconds")
+
+    if act == "chat.list":
+        _conv_for(cid, u, CHAT_TEAM)                      # the team group always exists
+        staff = _staff(cid)
+        out = []
+        for conv in _chat_convs().values():
+            members = _conv_members(cid, conv)
+            if uid not in members:
+                continue
+            d = _chat_load(conv["id"])
+            last = d["msgs"][-1] if d["msgs"] else None
+            # this phone has now received everything up to the last message: grey double tick
+            if last and d.setdefault("deliv", {}).get(uid, "") < last["at"]:
+                with _chat_lock:
+                    d2 = _chat_load(conv["id"]); d2.setdefault("deliv", {})[uid] = last["at"]; _chat_store(conv["id"], d2)
+                d = d2
+            seen = d["read"].get(uid, "")
+            unread = sum(1 for m in d["msgs"] if m["from"] != uid and m["at"] > seen and not m.get("gone"))
+            out.append({"id": conv["id"], "kind": conv["kind"], "title": _conv_title(cid, conv, uid),
+                        "members": [{"id": m, "name": (staff.get(m) or {}).get("name", "?")} for m in members],
+                        "last": {"text": _preview(last), "at": last["at"],
+                                 "from": (staff.get(last["from"]) or {}).get("name", "")} if last else None,
+                        "unread": unread})
+        out.sort(key=lambda c: (c["last"] or {}).get("at", ""), reverse=True)
+        for c in out:
+            if c["kind"] == "dm":
+                other = [m["id"] for m in c["members"] if m["id"] != uid]
+                c["presence"] = presence_of(other[0]) if other else None
+        return {"ok": True, "convs": out, "reacts": list(CHAT_REACTS),
+                "flags": _phone_flags(cid, uid, "on"),
+                "people": [{"id": k, "name": v.get("name"), "role": v.get("role")} for k, v in staff.items() if k != uid]}
+
+    if act == "presence.bye":
+        presence_touch(uid, "off")
+        return {"ok": True}
+
+    if act == "presence.team":
+        if u.get("role") not in ("admin", "supervisor"):
+            return {"ok": False, "msg": "For the office."}
+        staff = _staff(cid)
+        return {"ok": True, "team": sorted([dict(presence_of(k), id=k, name=v.get("name"), role=v.get("role"))
+                                            for k, v in staff.items()], key=lambda x: (not x["online"], x["name"] or ""))}
+
+    if act == "chat.new":
+        staff = _staff(cid)
+        with _chat_lock:
+            convs = _chat_convs()
+            if req.get("kind") == "dm":
+                other = str(req.get("with") or "")
+                if other not in staff or other == uid:
+                    return {"ok": False, "msg": "Choose someone on the staff."}
+                pair = sorted([uid, other])
+                for c in convs.values():
+                    if c["kind"] == "dm" and sorted(c["members"]) == pair:
+                        return {"ok": True, "id": c["id"]}
+                nid = "dm" + secrets.token_hex(6)
+                convs[nid] = {"id": nid, "kind": "dm", "members": pair, "by": uid, "at": stamp}
+            else:
+                if u.get("role") not in ("admin", "supervisor"):
+                    return {"ok": False, "msg": "Groups are started by the office."}
+                name = str(req.get("name") or "").strip()[:60]
+                members = sorted(set([m for m in (req.get("members") or []) if m in staff] + [uid]))
+                if not name or len(members) < 2:
+                    return {"ok": False, "msg": "A group needs a name and at least one other person."}
+                nid = "gr" + secrets.token_hex(6)
+                convs[nid] = {"id": nid, "kind": "group", "name": name, "members": members, "by": uid, "at": stamp}
+            _chat_save_convs(convs)
+        return {"ok": True, "id": nid}
+
+    reading = (u.get("role") == "admin" and aset["chat_read"] and act in ("chat.open", "chat.file", "chat.photo"))
+    conv = _conv_for(cid, u, str(req.get("conv") or ""))
+    if not conv and reading:
+        conv = _chat_convs().get(str(req.get("conv") or ""))
+    if not conv:
+        return {"ok": False, "msg": "That conversation is not yours."}
+
+    if act == "chat.open":
+        d = _chat_load(conv["id"])
+        after = str(req.get("after") or "")
+        msgs = [m for m in d["msgs"] if not after or m["at"] > after or m.get("edited", "") > after][-300:]
+        staff = _staff(cid)
+        if d["msgs"] and d.setdefault("deliv", {}).get(uid, "") < d["msgs"][-1]["at"]:
+            with _chat_lock:
+                d2 = _chat_load(conv["id"]); d2.setdefault("deliv", {})[uid] = d["msgs"][-1]["at"]; _chat_store(conv["id"], d2)
+            d = d2
+        others = [m for m in _conv_members(cid, conv) if m != uid]
+        return {"ok": True, "msgs": msgs, "read": d["read"], "deliv": d.get("deliv", {}),
+                "presence": {m: presence_of(m) for m in others},
+                "title": _conv_title(cid, conv, uid), "kind": conv["kind"],
+                "members": [{"id": m, "name": (staff.get(m) or {}).get("name", "?")} for m in _conv_members(cid, conv)]}
+
+    if act == "chat.send":
+        text = str(req.get("text") or "").strip()[:4000]
+        voice = str(req.get("voice") or "")
+        photo = ""
+        if req.get("photo"):
+            mt = _re.match(r"data:image/(jpeg|png|webp);base64,(.+)$", str(req["photo"]), _re.S)
+            if not mt:
+                return {"ok": False, "msg": "That is not a photo."}
+            photo = secrets.token_hex(8) + "." + mt.group(1).replace("jpeg", "jpg")
+            with open(os.path.join(_chat_dir(), "photos", photo), "wb") as fh:
+                fh.write(_b64p.b64decode(mt.group(2)))
+        if voice and not voice_file(voice):
+            return {"ok": False, "msg": "That voice note did not arrive."}
+        # a document: PDF, Word, Excel, anything \u2014 kept as a file, sent to the members only
+        fobj = None
+        if req.get("file"):
+            f = req["file"] if isinstance(req["file"], dict) else {}
+            mf = _re.match(r"data:([^;,]*)(?:;[^,]*)?;base64,(.+)$", str(f.get("data") or ""), _re.S)
+            name = _re.sub(r"[\\/:*?\"<>|\r\n]+", "_", str(f.get("name") or "file"))[:120] or "file"
+            if not mf:
+                return {"ok": False, "msg": "That file could not be read."}
+            raw = _b64p.b64decode(mf.group(2))
+            if len(raw) > 5 * 1024 * 1024:
+                return {"ok": False, "msg": "Files up to 5 MB can be sent."}
+            ext = (name.rsplit(".", 1)[1].lower() if "." in name else "bin")[:8]
+            if not _re.fullmatch(r"[a-z0-9]{1,8}", ext) or ext in ("exe", "bat", "cmd", "com", "msi", "apk", "js", "vbs", "scr", "ps1", "sh"):
+                return {"ok": False, "msg": "That kind of file is not sent (programs and scripts are not allowed)."}
+            fid = secrets.token_hex(8) + "." + ext
+            os.makedirs(os.path.join(_chat_dir(), "files"), exist_ok=True)
+            with open(os.path.join(_chat_dir(), "files", fid), "wb") as fh:
+                fh.write(raw)
+            fobj = {"id": fid, "name": name, "size": len(raw), "mime": mf.group(1) or "application/octet-stream"}
+        if not (text or voice or photo or fobj):
+            return {"ok": False, "msg": "Nothing to send."}
+        m = {"id": secrets.token_hex(6), "from": uid, "text": text, "voice": voice, "secs": req.get("secs"),
+             "photo": photo, "file": fobj, "reply": str(req.get("reply") or ""), "at": stamp, "reacts": {}}
+        with _chat_lock:
+            d = _chat_load(conv["id"])
+            # the clock must move forward, so "after" never misses a message sent in the same second
+            if d["msgs"] and d["msgs"][-1]["at"] >= m["at"]:
+                m["at"] = d["msgs"][-1]["at"] + "." + str(len(d["msgs"]))
+            d["msgs"].append(m); d["read"][uid] = m["at"]; d.setdefault("deliv", {})[uid] = m["at"]
+            _chat_store(conv["id"], d)
+        title = _conv_title(cid, conv, uid) if conv["kind"] == "group" else ""
+        for other in _conv_members(cid, conv):
+            if other != uid:
+                # the note travels with the shared data, so it says who, never what
+                _note_to_chat(cid, other, (u.get("name") or "") + ((" \u00b7 " + title) if title else ""),
+                              "sent a voice note" if m.get("voice") else "sent a photo" if m.get("photo") else "sent you a message",
+                              conv["id"])
+        return {"ok": True, "msg": m}
+
+    if act == "chat.react":
+        emo = str(req.get("emoji") or "")
+        if emo not in CHAT_REACTS:
+            return {"ok": False, "msg": "Not a reaction."}
+        with _chat_lock:
+            d = _chat_load(conv["id"])
+            for m in d["msgs"]:
+                if m["id"] == req.get("msg"):
+                    r = m.setdefault("reacts", {})
+                    for k in list(r.keys()):                       # one reaction per person
+                        if uid in r[k] and k != emo:
+                            r[k].remove(uid)
+                    lst = r.setdefault(emo, [])
+                    if uid in lst: lst.remove(uid)
+                    else: lst.append(uid)
+                    r = {k: v for k, v in r.items() if v}; m["reacts"] = r
+                    m["edited"] = pk_now().isoformat(timespec="milliseconds")
+                    _chat_store(conv["id"], d)
+                    return {"ok": True, "msg": m}
+        return {"ok": False, "msg": "No such message."}
+
+    if act == "chat.read":
+        with _chat_lock:
+            d = _chat_load(conv["id"])
+            upto = str(req.get("upto") or "")
+            if upto > d["read"].get(uid, ""):
+                d["read"][uid] = upto
+                _chat_store(conv["id"], d)
+        return {"ok": True}
+
+    # Deleting and editing belong to the admin alone \u2014 any message, anyone's.
+    # Nobody else can take back or change what was said, not even their own.
+    if act == "chat.edit":
+        if u.get("role") != "admin":
+            return {"ok": False, "msg": "Only an admin can edit messages."}
+        text = str(req.get("text") or "").strip()[:4000]
+        if not text:
+            return {"ok": False, "msg": "A message cannot be edited to nothing \u2014 delete it instead."}
+        with _chat_lock:
+            d = _chat_load(conv["id"])
+            for m in d["msgs"]:
+                if m["id"] == req.get("msg"):
+                    if m.get("gone"):
+                        return {"ok": False, "msg": "That message was deleted."}
+                    if m.get("text") == text:
+                        return {"ok": True, "msg": m}
+                    m.setdefault("history", []).append({"text": m.get("text", ""), "at": m.get("editedAt") or m["at"]})
+                    stamp2 = pk_now().isoformat(timespec="milliseconds")
+                    m.update({"text": text, "editedAt": stamp2, "editedBy": u.get("name"), "edited": stamp2})
+                    _chat_store(conv["id"], d)
+                    return {"ok": True, "msg": m}
+        return {"ok": False, "msg": "No such message."}
+
+    if act == "chat.delete":
+        if u.get("role") != "admin":
+            return {"ok": False, "msg": "Only an admin can delete messages."}
+        with _chat_lock:
+            d = _chat_load(conv["id"])
+            for m in d["msgs"]:
+                if m["id"] == req.get("msg"):
+                    m["deletedBy"] = u.get("name") if m["from"] != uid else ""
+                    m.update({"gone": True, "text": "", "voice": "", "photo": "", "file": None, "reacts": {}, "history": [],
+                              "edited": pk_now().isoformat(timespec="milliseconds")})
+                    _chat_store(conv["id"], d)
+                    return {"ok": True, "msg": m}
+        return {"ok": False, "msg": "No such message."}
+
+    if act == "chat.file":
+        fid = str(req.get("id") or "")
+        d = _chat_load(conv["id"])
+        m = [x for x in d["msgs"] if (x.get("file") or {}).get("id") == fid]
+        f = os.path.join(_chat_dir(), "files", fid)
+        if not m or not _re.fullmatch(r"[0-9a-f]{16}\.[a-z0-9]{1,8}", fid) or not os.path.exists(f):
+            return {"ok": False, "msg": "Not in this conversation."}
+        with open(f, "rb") as fh:
+            return {"ok": True, "name": m[0]["file"]["name"], "mime": m[0]["file"]["mime"],
+                    "data": _b64p.b64encode(fh.read()).decode()}
+
+    if act == "chat.photo":
+        name = str(req.get("id") or "")
+        d = _chat_load(conv["id"])
+        if not any(m.get("photo") == name for m in d["msgs"]):
+            return {"ok": False, "msg": "Not in this conversation."}
+        f = os.path.join(_chat_dir(), "photos", name)
+        if not _re.fullmatch(r"[0-9a-f]{16}\.(jpg|png|webp)", name) or not os.path.exists(f):
+            return {"ok": False, "msg": "Not found."}
+        with open(f, "rb") as fh:
+            ext = name.rsplit(".", 1)[1].replace("jpg", "jpeg")
+            return {"ok": True, "data": "data:image/%s;base64,%s" % (ext, _b64p.b64encode(fh.read()).decode())}
+
+    return {"ok": False, "msg": "Unknown action"}
+
+
+def _note_to_chat(cid, uid, what, detail, conv_id):
+    stamp = pk_now().isoformat(timespec="seconds")
+    nid = "ch" + secrets.token_hex(6)
+    store_push(cid, {"records": {"notes": {nid: {"id": nid, "to": uid, "what": what, "detail": detail,
+                                                  "link": "chat:" + conv_id, "kind": "chat",
+                                                  "at": stamp, "read": False, "_at": stamp}}}})
+
+
+# ================================================================
+#  ADMIN SETTINGS AND LOCATION
+#  ----------------------------------------------------------------
+#  One place the admin turns things on and off. The server reads
+#  these on every request, so a phone cannot go around them. The
+#  defaults are the safe ones: chat on, admin cannot read, no
+#  end-to-end, no location \u2014 nothing private happens until chosen.
+# ================================================================
+
+ADMIN_DEFAULTS = {"chat_on": True, "chat_read": False, "chat_e2e": False, "loc_on": False}
+_loc_ask = {}
+_loc_now = {}
+
+
+def admin_settings():
+    try:
+        with open(os.path.join(DATA_DIR, "admin.json"), encoding="utf-8") as fh:
+            s = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        s = {}
+    out = dict(ADMIN_DEFAULTS); out.update({k: v for k, v in s.items() if k in ADMIN_DEFAULTS})
+    if out["chat_e2e"]:
+        out["chat_read"] = False
+    return out
+
+
+def _admin_save(s):
+    q = os.path.join(DATA_DIR, "admin.json")
+    with open(q + ".tmp", "w", encoding="utf-8") as fh:
+        json.dump(s, fh)
+    os.replace(q + ".tmp", q)
+
+
+def _phone_flags(cid, uid, state):
+    s = admin_settings()
+    want = _loc_ask.get(uid, 0)
+    return {"chat_on": s["chat_on"], "loc_on": s["loc_on"],
+            "loc_wanted": bool(state == "on" and want and time.time() - want < 120)}
+
+
+def admin_route(cid, req, u):
+    if u.get("role") != "admin":
+        return {"ok": False, "msg": "Admin settings are for the admin."}
+    if req.get("set") and isinstance(req.get("settings"), dict):
+        s = admin_settings()
+        for k in ADMIN_DEFAULTS:
+            if k in req["settings"]:
+                s[k] = bool(req["settings"][k])
+        if s["chat_e2e"]:
+            s["chat_read"] = False
+        _admin_save(s)
+    return {"ok": True, "settings": admin_settings()}
+
+
+def loc_route(cid, req, u):
+    act = req.get("action"); s = admin_settings()
+    if act == "loc.mine":
+        if not s["loc_on"]:
+            return {"ok": True, "off": True}
+        lat, lng = req.get("lat"), req.get("lng")
+        if lat is not None and lng is not None:
+            _loc_now[u["id"]] = {"lat": float(lat), "lng": float(lng), "acc": float(req.get("acc") or 0),
+                                 "at": pk_now().isoformat(timespec="seconds")}
+        want = _loc_ask.pop(u["id"], 0)
+        return {"ok": True, "wanted": bool(want and time.time() - want < 120)}
+    if u.get("role") != "admin":
+        return {"ok": False, "msg": "For the admin."}
+    if act == "loc.ask":
+        if not s["loc_on"]:
+            return {"ok": False, "off": True, "msg": "Turn location on in Admin Settings first."}
+        who = str(req.get("who") or "")
+        if who:
+            _loc_ask[who] = time.time()
+        return {"ok": True}
+    if act == "loc.team":
+        if not s["loc_on"]:
+            return {"ok": False, "off": True, "msg": "Location is switched off."}
+        staff = {x["id"]: x for x in store_load(cid).get("users", {}).values()
+                 if isinstance(x, dict) and x.get("active", True) and x.get("role") != "operator"}
+        out = []
+        for uid, x in staff.items():
+            if uid == u["id"]:
+                continue
+            loc = _loc_now.get(uid)
+            fresh = loc and (pk_now() - _dt.datetime.fromisoformat(loc["at"])).total_seconds() < 300
+            out.append({"id": uid, "name": x.get("name"), "role": x.get("role"),
+                        "lat": loc["lat"] if loc else None, "lng": loc["lng"] if loc else None,
+                        "acc": loc.get("acc") if loc else None, "at": loc["at"] if loc else "",
+                        "fresh": bool(fresh)})
+        return {"ok": True, "team": sorted(out, key=lambda z: (not z["fresh"], z["name"] or ""))}
     return {"ok": False, "msg": "Unknown action"}
 
 
@@ -3049,7 +5457,7 @@ self.addEventListener('notificationclick', function(e){
 #  WHAT A REQUEST CAN ASK FOR
 # ================================================================
 
-BUILD = "2026-09-20 sharing + counters + console + QR complaints + installable app + every kind shared + phone notes + iPhone push + admin join + attendance + salary"
+BUILD = "2026-09-20 sharing + counters + console + QR complaints + installable app + every kind shared + phone notes + iPhone push + admin join + attendance + salary + receivables + manuals and assistant (off)"
 
 
 def handle(req):
@@ -3125,6 +5533,43 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if path.startswith("/voice/"):
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            if not _session("main", {"token": (qs.get("t") or [""])[0]}):
+                return self._send({"ok": False, "msg": "Not allowed."}, 403)
+            f = voice_file(path[len("/voice/"):])
+            if not f:
+                return self._send({"ok": False, "msg": "Not found."}, 404)
+            ext = f.rsplit(".", 1)[1]
+            mime = {v: k for k, v in VOICE_TYPES.items() if not k.startswith("video")}.get(ext, "application/octet-stream")
+            with open(f, "rb") as fh:
+                body = fh.read()
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Accept-Ranges", "none")
+            self.send_header("Cache-Control", "private, max-age=86400")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path.startswith("/manual/") and path.endswith(".pdf"):
+            mid = path[len("/manual/"):-4]
+            qs = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            tok = (qs.get("t") or [""])[0]
+            if not _re.fullmatch(r"[0-9a-f]{12}", mid) or not manual_file_allowed("main", mid, tok):
+                return self._send({"ok": False, "msg": "Not allowed."}, 403)
+            try:
+                with open(_pdf_path(mid), "rb") as fh:
+                    body = fh.read()
+            except OSError:
+                return self._send({"ok": False, "msg": "Not found."}, 404)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/pdf")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "private, max-age=3600")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/manifest.json":
             body = json.dumps(manifest()).encode("utf-8")
             self.send_response(200)
@@ -3183,10 +5628,31 @@ class Handler(BaseHTTPRequestHandler):
         # The client's form is the one thing here with no shared secret,
         # because a client who has to be given one will phone instead. It
         # can only look up a machine and report a fault on it.
+        if path == "/upload":
+            # a manual, in pieces: the secret, a session, and the admin
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > 8 * 1024 * 1024:
+                    return self._send({"ok": False, "msg": "That piece is too large"}, 413)
+                req = json.loads(self.rfile.read(length).decode("utf-8", "replace") or "{}")
+            except Exception:
+                return self._send({"ok": False, "msg": "Could not read that."}, 400)
+            if not hmac.compare_digest(str(req.get("key") or ""), SHARED_SECRET):
+                return self._send({"ok": False, "msg": "Shared secret does not match"}, 403)
+            u = _session("main", req)
+            if not u:
+                return self._send({"ok": False, "signin": True, "msg": "Sign in again."})
+            try:
+                return self._send(manual_upload("main", req, u))
+            except Exception as e:
+                note("UPLOAD ERROR", repr(e))
+                return self._send({"ok": False, "msg": "Something went wrong here."}, 500)
+
         if path == "/hr":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
-                if length > 65536:
+                # room for a cheque or counter photo; nothing larger
+                if length > 8 * 1024 * 1024:
                     return self._send({"ok": False, "msg": "Too large"}, 413)
                 raw = self.rfile.read(length).decode("utf-8", "replace")
                 req = json.loads(raw) if raw else {}
@@ -3263,6 +5729,7 @@ if __name__ == "__main__":
     note("Client form at  /c/<serial>  \u2014 no login, by design")
     try:
         threading.Thread(target=hr_watch, daemon=True).start()
+        threading.Thread(target=me_watch, daemon=True).start()
         ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
     except KeyboardInterrupt:
         note("stopped")
