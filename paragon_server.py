@@ -1690,6 +1690,99 @@ def scan_report(cid, req):
     return {"ok": True, "no": no}
 
 
+def machine_beat(cid, req):
+    """Agent har machine ka counter/toner regularly bhejta hai \u2014 bina
+    kisi kharabi ke. Sirf machine record update hota hai."""
+    serial = str(req.get("serial") or "")
+    if not serial:
+        return {"ok": False, "msg": "No serial."}
+    m, _ = find_machine(cid, serial)
+    if not m:
+        return {"ok": False, "msg": "unknown-machine", "serial": serial}
+    with _store_lock:
+        d = store_load(cid)
+        if m.get("id") in d.get("items", {}):
+            mm = d["items"][m["id"]]
+            if req.get("counter") is not None:
+                try: mm["autoCounter"] = int(req["counter"])
+                except (TypeError, ValueError): pass
+            if req.get("toner") is not None:
+                mm["autoToner"] = req["toner"]
+            mm["autoAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+            d["rev"] += 1
+            store_save(cid, d)
+    return {"ok": True}
+
+
+def machine_report(cid, req):
+    """The Paragon Agent, watching the machines over SNMP, sends a fault it
+    found: a serial, an error, and the counter and toner at the time. We turn
+    it into a complaint under that machine \u2014 the same as a client\u2019s
+    report, but marked as coming from the machine itself. One open complaint
+    per machine still holds: a machine that is already being seen to does not
+    raise a second."""
+    serial = str(req.get("serial") or "")
+    if not serial:
+        return {"ok": False, "msg": "No serial."}
+    m, _ = find_machine(cid, serial)
+    if not m:
+        return {"ok": False, "msg": "unknown-machine", "serial": serial}
+
+    err = str(req.get("error") or "").strip() or "Machine reported a fault"
+    code = str(req.get("code") or "").strip()          # SC code, if any
+    counter = req.get("counter")
+    toner = req.get("toner")
+
+    with _store_lock:
+        d = store_load(cid)
+
+        # counter aur toner machine record par rakho (khud aate rehte hain)
+        if m.get("id") in d.get("items", {}):
+            mm = d["items"][m["id"]]
+            if counter is not None:
+                try: mm["autoCounter"] = int(counter)
+                except (TypeError, ValueError): pass
+            if toner is not None:
+                mm["autoToner"] = toner
+            mm["autoAt"] = datetime.datetime.now().isoformat(timespec="seconds")
+
+        # pehle se khuli complaint? to dobara na banao (bas note)
+        open_one = open_complaint_on(d, m.get("id"))
+        if open_one:
+            d["rev"] += 1
+            store_save(cid, d)
+            return {"ok": True, "already": True, "no": open_one.get("no")}
+
+        stamp = datetime.datetime.now().isoformat(timespec="seconds")
+        seq = d.setdefault("seq", {})
+        seq["machine"] = int(seq.get("machine", 0)) + 1
+        now_d = datetime.datetime.now()
+        no = "PBS-M%02d-%04d" % (now_d.month, 1600 + seq["machine"])
+
+        # importance: repeat error ya serious -> High
+        recent = [c for c in d.get("invoices", {}).values()
+                  if c.get("machine") == m.get("id") and c.get("status") == "resolved"]
+        pri = "High" if (code and len(recent) >= 1) else "Normal"
+
+        job_id = "m" + secrets.token_hex(6)
+        d.setdefault("invoices", {})[job_id] = {
+            "id": job_id, "no": no, "status": "pending",
+            "client": m.get("client"), "machine": m.get("id"),
+            "what": err + ((" (" + code + ")") if code else ""),
+            "pri": pri, "tech": "",
+            "source": "machine",
+            "scCode": code,
+            "atCounter": counter,
+            "opened": stamp, "openedBy": "", "shots": [],
+            "_at": stamp,
+        }
+        d["rev"] += 1
+        store_save(cid, d)
+
+    note("%s machine complaint %s (%s)" % (cid, no, code or err))
+    return {"ok": True, "no": no, "made": True}
+
+
 SCAN_HTML = r"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -4950,6 +5043,34 @@ def chat_route(cid, req, u):
         return {"ok": False, "off": True, "msg": "Chat is switched off by the admin."}
     stamp = pk_now().isoformat(timespec="milliseconds")
 
+    # ---- in-app call signaling (WebRTC) ----
+    if act == "call.signal":
+        to = str(req.get("to") or "")
+        if not to:
+            return {"ok": False, "msg": "Whom to call?"}
+        box = _chat_load("calls.json", {})
+        inbox = box.setdefault(to, [])
+        inbox.append({"from": uid, "fromName": u.get("name"),
+                      "kind": str(req.get("kind") or ""),
+                      "data": req.get("data"), "at": stamp})
+        box[to] = inbox[-30:]
+        _chat_store("calls.json", box)
+        return {"ok": True}
+
+    if act == "call.poll":
+        box = _chat_load("calls.json", {})
+        mine = box.get(uid, [])
+        since = str(req.get("since") or "")
+        out = [s for s in mine if str(s.get("at", "")) > since]
+        return {"ok": True, "signals": out,
+                "now": pk_now().isoformat(timespec="milliseconds")}
+
+    if act == "call.clear":
+        box = _chat_load("calls.json", {})
+        box[uid] = []
+        _chat_store("calls.json", box)
+        return {"ok": True}
+
     if act == "chat.list":
         _conv_for(cid, u, CHAT_TEAM)                      # the team group always exists
         staff = _staff(cid)
@@ -5674,6 +5795,10 @@ def handle(req):
     if action == "forget":    return store_forget(cid, req)
     if action == "stats":     return store_stats(cid)
     if action == "notes":     return notes_for(cid, req)
+    if action == "machine.report":  return machine_report(cid, req)
+    if action == "machine.beat":
+        # agent zinda hai, counter/toner update (bina complaint ke)
+        return machine_beat(cid, req)
     if action == "pushkey":   return push_key(cid, req)
     if action == "subscribe": return push_subscribe(cid, req)
     if action == "unsubscribe": return push_unsubscribe(cid, req)

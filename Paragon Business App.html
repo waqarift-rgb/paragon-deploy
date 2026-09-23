@@ -39,10 +39,9 @@ body{font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 #app{display:none;min-height:100%;padding-bottom:calc(64px + var(--safe-b))}
 .bar{position:sticky;top:0;z-index:40;background:#1C2430;color:#fff;
  padding:calc(10px + var(--safe-t)) 14px 10px;display:flex;align-items:center;gap:11px}
-.bar .mk{width:30px;height:30px;border-radius:7px;background:var(--blue);
- display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.bar .mk i{display:block;width:13px;height:2px;background:#fff;border-radius:1px;
- box-shadow:0 4px 0 rgba(255,255,255,.62),0 8px 0 rgba(255,255,255,.34)}
+.bar .mk{width:32px;height:32px;border-radius:7px;background:#fff;
+ display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:3px}
+.bar .mk img{width:100%;height:100%;object-fit:contain}
 .bar .t{font-size:15px;font-weight:600;line-height:1.2;flex:1;min-width:0}
 .bar .t span{display:block;font-size:11px;font-weight:400;color:#8FA6C4;
  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -302,7 +301,7 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
 <!-- the app -->
 <div id="app">
   <div class="bar">
-    <div class="mk"><i></i></div>
+    <div class="mk"><img src="data:image/png;base64,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" alt="Paragon"></div>
     <div class="t">Paragon<span id="homeRole"></span></div>
     <button id="barChat" onclick="chatHome()" title="Chat" style="display:none">&#128172;</button>
     <button id="barBell" onclick="noteCentre()" title="What you missed"
@@ -2082,7 +2081,10 @@ function jobCard(c){
         (c.what.length > 90 ? '\u2026' : '')+'</div>'+
       (c.source === 'scan'
         ? '<div style="margin-top:6px"><span class="pill p-parts">'+
-          'Client scanned</span></div>' : '')+
+          'Client scanned</span></div>'
+        : c.source === 'machine'
+        ? '<div style="margin-top:6px"><span class="pill p-closed" style="background:#FBEDEE;color:#AE1F26">'+
+          '\u{1F5A8}\uFE0F Machine reported'+(c.scCode?' \u00b7 '+esc(c.scCode):'')+'</span></div>' : '')+
       '<div class="meta" style="margin-top:6px"><b>'+esc(c.no)+'</b> \u00b7 '+
         ago(c.opened)+
         (c.tech ? ' \u00b7 ' + esc(nameOf(DB.users, c.tech)) +
@@ -7466,6 +7468,11 @@ function openMachine(id){
       ([m.place,m.dept].filter(Boolean).length
         ? ' \u00b7 '+esc([m.place,m.dept].filter(Boolean).join(' \u2014 ')) : '')+
       '</div>'+
+    (m.autoAt ? '<div class="auto-strip">'+
+      '\u{1F4E1} <b>Live from machine</b>'+
+      (m.autoCounter!=null ? ' \u00b7 Counter '+num(m.autoCounter) : '')+
+      (m.autoToner!=null ? ' \u00b7 Toner '+esc(String(m.autoToner))+'%' : '')+
+      '<div class="auto-when">'+ago(m.autoAt)+'</div></div>' : '')+
 
     (r && r.last
       ? '<div class="tiles" style="grid-template-columns:repeat(2,1fr)">'+
@@ -9113,6 +9120,195 @@ function aiAgentCopyFallback(){
 function aiAgentWhatsApp(){
   if(!_agentDraft) return;
   window.location.href = 'https://wa.me/?text=' + encodeURIComponent(_agentDraft);
+}
+
+/* ============================================================
+   IN-APP CALL  (voice / video, WebRTC)
+   ============================================================ */
+
+var _call = null;   /* { peer, pc, stream, remote, convId, video, ringing } */
+
+/* WebRTC ke liye page secure (https) chahiye. Warna dialer. */
+function callSupported(){
+  return !!(window.RTCPeerConnection && navigator.mediaDevices &&
+            navigator.mediaDevices.getUserMedia &&
+            (location.protocol === 'https:' || location.hostname === 'localhost'));
+}
+
+/* free public STUN (NAT ke paar). TURN baad mein jodenge agar zaroorat ho. */
+var _iceServers = [{ urls: 'stun:stun.l.google.com:19302' },
+                   { urls: 'stun:stun1.l.google.com:19302' }];
+
+/* chatCall ko upgrade: https par in-app, warna dialer */
+function callStart(convId, video){
+  if(!callSupported()){
+    /* HTTPS nahi \u2014 phone dialer (jo pehle tha) */
+    return callDialer(convId);
+  }
+  var other = null;
+  (_chat.members || []).forEach(function(m){ if(m.id !== ME.id) other = m; });
+  if(!other && _chat.list){
+    var c = _chat.list.filter(function(x){ return x.id === convId; })[0];
+    if(c && c.other) other = c.other;
+  }
+  if(!other) return toast('Kise call karein?','bad');
+
+  _callBegin(other, convId, !!video, true);
+}
+
+function callDialer(convId){
+  var other = null;
+  (_chat.members || []).forEach(function(m){ if(m.id !== ME.id) other = m; });
+  if(!other && _chat.list){
+    var c = _chat.list.filter(function(x){ return x.id === convId; })[0];
+    if(c && c.other) other = c.other;
+  }
+  var u = other ? byId(DB.users, other.id) : null;
+  var phone = (u && u.phone) ? u.phone : (other && other.phone);
+  if(!phone) return toast('Is ka phone number nahi hai','bad');
+  window.location.href = 'tel:' + String(phone).replace(/[^0-9+]/g, '');
+}
+
+function _callBegin(other, convId, video, iCall){
+  _call = { peer: other.id, peerName: other.name, convId: convId, video: video,
+            pc: null, stream: null, ringing: iCall };
+  callUI('calling');
+  navigator.mediaDevices.getUserMedia({ audio: true, video: video })
+    .then(function(stream){
+      _call.stream = stream;
+      var pc = new RTCPeerConnection({ iceServers: _iceServers });
+      _call.pc = pc;
+      stream.getTracks().forEach(function(t){ pc.addTrack(t, stream); });
+      pc.onicecandidate = function(e){
+        if(e.candidate) callSend('ice', e.candidate);
+      };
+      pc.ontrack = function(e){
+        _call.remote = e.streams[0];
+        var v = document.getElementById('callRemote');
+        if(v){ v.srcObject = e.streams[0]; }
+        callUI('connected');
+      };
+      pc.onconnectionstatechange = function(){
+        if(pc.connectionState === 'failed' || pc.connectionState === 'disconnected') callEnd(true);
+      };
+      var lv = document.getElementById('callLocal');
+      if(lv && video){ lv.srcObject = stream; }
+
+      if(iCall){
+        pc.createOffer().then(function(o){ return pc.setLocalDescription(o); })
+          .then(function(){ callSend('offer', { sdp: pc.localDescription, video: video }); });
+        callSend('ring', { video: video });
+      }
+      callPollStart();
+    })
+    .catch(function(err){
+      toast(video ? 'Camera/mic ki ijazat nahi' : 'Mic ki ijazat nahi','bad');
+      callEnd(false);
+    });
+}
+
+function callSend(kind, data){
+  if(!_call) return;
+  hrCall({ action:'call.signal', to:_call.peer, kind:kind, data:data }).catch(function(){});
+}
+
+var _callPoll = null, _callSince = '';
+function callPollStart(){
+  clearInterval(_callPoll);
+  _callPoll = setInterval(callPollNow, 1200);
+}
+function callPollNow(){
+  hrCall({ action:'call.poll', since:_callSince }).then(function(d){
+    if(!d || !d.ok) return;
+    _callSince = d.now || _callSince;
+    (d.signals || []).forEach(callHandle);
+  }).catch(function(){});
+}
+
+function callHandle(s){
+  /* aane wali call (ring) \u2014 app khula ho to */
+  if(s.kind === 'ring' && !_call){
+    _callIncoming(s);
+    return;
+  }
+  if(!_call || s.from !== _call.peer) return;
+  var pc = _call.pc;
+  if(s.kind === 'offer' && pc){
+    pc.setRemoteDescription(new RTCSessionDescription(s.data.sdp))
+      .then(function(){ return pc.createAnswer(); })
+      .then(function(a){ return pc.setLocalDescription(a); })
+      .then(function(){ callSend('answer', { sdp: pc.localDescription }); });
+  } else if(s.kind === 'answer' && pc){
+    pc.setRemoteDescription(new RTCSessionDescription(s.data.sdp));
+  } else if(s.kind === 'ice' && pc){
+    try { pc.addIceCandidate(new RTCIceCandidate(s.data)); } catch(e){}
+  } else if(s.kind === 'hangup'){
+    callEnd(false);
+  }
+}
+
+function _callIncoming(s){
+  var u = byId(DB.users, s.from);
+  _call = { peer: s.from, peerName: s.fromName || (u && u.name) || 'Someone',
+            video: !!(s.data && s.data.video), pc: null, stream: null, incoming: true };
+  callUI('incoming');
+  callPollStart();
+}
+
+function callAccept(){
+  if(!_call) return;
+  var other = { id: _call.peer, name: _call.peerName };
+  var video = _call.video, conv = _call.convId;
+  _call = null;
+  _callBegin(other, conv, video, false);
+  /* answerer offer ka intezar karega (ring aaya, offer bhi aa raha) */
+}
+
+function callEnd(silent){
+  if(_call){
+    if(!silent) callSend('hangup', {});
+    if(_call.pc) try { _call.pc.close(); } catch(e){}
+    if(_call.stream) _call.stream.getTracks().forEach(function(t){ t.stop(); });
+  }
+  clearInterval(_callPoll);
+  hrCall({ action:'call.clear' }).catch(function(){});
+  _call = null;
+  var w = document.getElementById('callWrap'); if(w) w.remove();
+}
+
+/* ---- call ki screen ---- */
+function callUI(state){
+  var w = document.getElementById('callWrap');
+  if(!w){
+    w = document.createElement('div'); w.id = 'callWrap'; w.className = 'call-wrap';
+    document.body.appendChild(w);
+  }
+  var name = _call ? esc(_call.peerName) : '';
+  var video = _call && _call.video;
+  var label = state === 'incoming'
+      ? (video ? 'Video call aa rahi hai\u2026' : 'Call aa rahi hai\u2026')
+      : state === 'calling' ? 'Ring ho rahi hai\u2026'
+      : state === 'connected' ? 'Connected' : '';
+
+  w.innerHTML =
+    (video
+      ? '<video id="callRemote" class="call-remote" autoplay playsinline></video>'+
+        '<video id="callLocal" class="call-local" autoplay playsinline muted></video>'
+      : '<div class="call-voice"><div class="call-av">'+initials(_call?_call.peerName:'')+'</div></div>')+
+    '<div class="call-top"><div class="call-name">'+name+'</div>'+
+      '<div class="call-state">'+label+'</div></div>'+
+    '<div class="call-btns">'+
+      (state === 'incoming'
+        ? '<button class="call-btn green" onclick="callAccept()">\u{1F4DE} Answer</button>'+
+          '<button class="call-btn red" onclick="callEnd(false)">Decline</button>'
+        : '<button class="call-btn red" onclick="callEnd(false)">\u{1F4F4} End</button>')+
+    '</div>';
+}
+
+/* har jagah call sun-ne ke liye \u2014 boot par poll shuru (sirf https par) */
+function callWatch(){
+  if(!callSupported() || !sharingOn() || !ME) return;
+  callPollStart();
 }
 
 /* ============================================================
@@ -12265,6 +12461,7 @@ function dService(){
   var scan = DB.complaints.filter(function(c){ return c.source === 'scan' && String(c.opened) >= wk; });
   var out = strip([
     [open.length, 'Open', '', "dashList('Open', openJobs())"],
+    [DB.complaints.filter(function(c){ return c.source==='machine' && jobOpen(c); }).length, 'From machines', 'var(--red)', "dashList('From machines', DB.complaints.filter(function(c){ return c.source==='machine' && jobOpen(c); }))"],
     [un.length, 'Unassigned', 'var(--db-neg)', "dashList('Unassigned', unassignedJobs())"],
     [over3.length, 'Over 3 days', 'var(--db-warn)', "dashList('Over 3 days', openJobs().filter(function(c){ return hoursSince(c.opened) > 72; }))"],
     [scan.length, 'By QR scan', 'var(--db-cool)', "dashList('By QR scan this week', DB.complaints.filter(function(c){ return c.source === 'scan' && String(c.opened) >= '" + wk + "'; }))"]]);
@@ -13688,7 +13885,8 @@ function chatOpen(id){
   w.innerHTML = '<div class="ch-head"><button class="ch-back" onclick="_chat.open=null;chatDrawList();chatRefreshBadge()">\u2039</button>'+
     '<div class="ch-av sm" style="background:' + (c.kind === 'group' ? '#12395E' : avatarColour(c.title)) + '">' + (c.kind === 'group' ? '\u{1F465}' : ((c.other && userPhoto(c.other.id)) ? '<img src="'+userPhoto(c.other.id)+'">' : initials(c.title))) + '</div>'+
     '<div class="grow" style="min-width:0"><div class="ch-title" id="chTitle">' + esc(c.title || '') + '</div><div class="ch-sub" id="chSub"></div></div>'+
-    (c.kind !== 'group' ? '<button class="ch-call" onclick="chatCall(\''+id+'\')" title="Call">\u{1F4DE}</button>' : '')+
+    (c.kind !== 'group' ? '<button class="ch-call" onclick="callStart(\''+id+'\',false)" title="Voice call">\u{1F4DE}</button>'+
+      '<button class="ch-call" onclick="callStart(\''+id+'\',true)" title="Video call">\u{1F4F9}</button>' : '')+
     '</div>'+
     '<div class="ch-msgs" id="chMsgs"><div class="empty">Loading\u2026</div></div>' + chatComposer();
   chatFetch(true);
@@ -13696,7 +13894,8 @@ function chatOpen(id){
 
 /* WhatsApp jaisa call: 1-to-1 chat se us bande ko call. Us ka phone number
    ho to phone ka dialer khul jata hai. (Poora in-app voice call baad mein.) */
-function chatCall(convId){
+function chatCall(convId){ return callStart(convId, false); }
+function chatCallOld(convId){
   var c = _chat.list.filter(function(x){ return x.id === convId; })[0] || {};
   /* doosre bande ka user record dhoondo (conversation ke members se) */
   var other = null;
@@ -15183,6 +15382,7 @@ load();
     ME = u;
     document.addEventListener('DOMContentLoaded', resumeSession);
     document.addEventListener('DOMContentLoaded', function(){ try { soundWire(); } catch(e){} });
+    document.addEventListener('DOMContentLoaded', function(){ try { setTimeout(callWatch, 2000); } catch(e){} });
     if(document.readyState !== 'loading') resumeSession();
   }
 })();
