@@ -5393,17 +5393,42 @@ def loc_route(cid, req, u):
             return {"ok": False, "off": True, "msg": "Location is switched off."}
         staff = {x["id"]: x for x in store_load(cid).get("users", {}).values()
                  if isinstance(x, dict) and x.get("active", True) and x.get("role") != "operator"}
+        st = store_load(cid)
+        # aaj kis ki attendance chal rahi (on duty) aur kis job par
+        hr = hr_load(cid)
+        today_key = _today()
+        att = hr.get("attendance", {}).get(today_key, {})
+        open_jobs = {}
+        for c in st.get("invoices", {}).values():
+            if c.get("tech") and c.get("status") in ("pending", "started", "parts"):
+                open_jobs.setdefault(c["tech"], c)
         out = []
         for uid, x in staff.items():
             if uid == u["id"]:
                 continue
             loc = _loc_now.get(uid)
             fresh = loc and (pk_now() - _dt.datetime.fromisoformat(loc["at"])).total_seconds() < 300
+            # online: presence 90 sec ke andar
+            pr = _presence.get(uid)
+            online = False
+            last_seen = ""
+            if pr:
+                last_seen = pr.get("at", "")
+                try:
+                    online = pr.get("state") == "on" and (pk_now() - _dt.datetime.fromisoformat(pr["at"])).total_seconds() < 90
+                except Exception:
+                    online = False
+            rec = att.get(uid, {})
+            on_duty = bool(rec.get("in") and not rec.get("out"))
+            job = open_jobs.get(uid)
             out.append({"id": uid, "name": x.get("name"), "role": x.get("role"),
                         "lat": loc["lat"] if loc else None, "lng": loc["lng"] if loc else None,
                         "acc": loc.get("acc") if loc else None, "at": loc["at"] if loc else "",
-                        "fresh": bool(fresh)})
-        return {"ok": True, "team": sorted(out, key=lambda z: (not z["fresh"], z["name"] or ""))}
+                        "fresh": bool(fresh),
+                        "online": online, "lastSeen": last_seen,
+                        "onDuty": on_duty,
+                        "job": (job.get("no") if job else "")})
+        return {"ok": True, "team": sorted(out, key=lambda z: (not z["online"], not z["fresh"], z["name"] or ""))}
     return {"ok": False, "msg": "Unknown action"}
 
 
