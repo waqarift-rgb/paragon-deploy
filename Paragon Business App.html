@@ -193,6 +193,16 @@ textarea{resize:vertical;min-height:80px}
 .qfold{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .qfold button{border:1px solid var(--line);background:#fff;color:var(--ink-2);border-radius:16px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer}
 .qfold button.on{background:#12395E;color:#fff;border-color:#12395E}
+.mr-head{margin-bottom:12px}.mr-m{font-size:16px;font-weight:700;color:#12395E}.mr-c{font-size:12.5px;color:#667}
+.mr-figs{display:flex;gap:8px;margin-bottom:14px}.mr-fig{flex:1;background:#F5F8FB;border-radius:9px;padding:11px 6px;text-align:center}
+.mr-fig .n{font-size:17px;font-weight:800;color:#12395E}.mr-fig .l{font-size:10.5px;color:#667;margin-top:2px}
+.mr-flag{background:#FBEDEE;color:#AE1F26;font-weight:700;font-size:13px;padding:9px 12px;border-radius:8px;margin-bottom:8px}
+.mr-rep{font-size:13px;padding:6px 12px;border-bottom:1px solid var(--line)}
+.mr-sec{font-size:12px;font-weight:700;color:#12395E;margin:14px 0 7px}
+.mr-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.mr-tbl th{background:#12395E;color:#fff;text-align:left;padding:5px 7px;font-size:10.5px}
+.mr-tbl td{border-bottom:1px solid var(--line);padding:5px 7px;vertical-align:top}
+.mr-tbl .num{text-align:right}.mr-job{font-size:10px;color:#889}
 .tp-row{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:7px;cursor:pointer}
 .tp-row:active{background:#F5F8FB}
 .tp-av{width:42px;height:42px;border-radius:50%;color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden}
@@ -562,7 +572,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.10';
+var APP_VERSION = '1.11';
 var DEFAULT_SERVER = 'http://139.180.219.41:8080/';
 var DB = {};
 
@@ -2637,7 +2647,8 @@ function reports(){
      ['Machine History','One machine, every visit and part','machinePick()'],
      ['Team performance','Every technician\u2019s jobs and speed this month','teamPerformance()'],
      ['Technician Work','Who did what, and which jobs came back \u2014 fairly','techReport()'],
-     ['Quality Comparison','CET, China, original \u2014 what each costs per 1,000 pages','qualityReport()']]
+     ['Quality Comparison','CET, China, original \u2014 what each costs per 1,000 pages','qualityReport()'],
+     ['Machine Report','One machine \u2014 every part fitted, to catch theft or a fault','machineReportPick()']]
     .map(function(r){
       return '<div class="card tap" onclick="'+r[2]+'" '+
         'style="padding:12px 13px;margin-bottom:8px">'+
@@ -3411,6 +3422,13 @@ var BRANDS = {
    Number quotation ke type ke saath banta hai. */
 /* Quotation ka naam: ClientName-Quotation/Sales-Date
    (jaise ABS Engineering-Sales-23-09-2026). Print/share par yeh naam. */
+/* Default valid-till: quotation date se theek ek mahina aage. Change ho sakta. */
+function quoteValidDefault(fromDate){
+  var d = fromDate ? new Date(fromDate) : new Date();
+  d.setMonth(d.getMonth() + 1);
+  return d.toISOString().slice(0,10);
+}
+
 function quoteName(x){
   var client = nameOf(DB.clients, x.client) || 'Client';
   var kind = x.type === 'rental' ? 'Rental' : (x.tax ? 'Sales' : 'Quotation');
@@ -3631,7 +3649,7 @@ function openQuoteForm(id){
     '<div class="field"><label>Date</label>'+
       '<input id="qfDate" type="date" value="'+(x?x.date:today())+'"></div>'+
     '<div class="field"><label>Valid until</label>'+
-      '<input id="qfValid" type="date" value="'+(x?x.valid||'':'')+'">'+
+      '<input id="qfValid" type="date" value="'+(x?(x.valid||quoteValidDefault(x.date)):quoteValidDefault(today()))+'">'+
       '<div class="help">Prints for the client. Nothing expires on its own \u2014 '+
       'only a person closes a quotation.</div></div>'+
     '<div class="field"><label>Reference</label>'+
@@ -3644,7 +3662,7 @@ function openQuoteForm(id){
 }
 
 function defaultTerms(){
-  return 'Prices are valid for 15 days from the date of this quotation.\n'+
+  return 'Prices are valid for one month from the date of this quotation.\n'+
          'Delivery within 7 working days of a confirmed order.\n'+
          'Payment 50% in advance, balance on delivery.';
 }
@@ -3716,7 +3734,7 @@ function saveQuote(id){
   }
   x.date   = $('qfDate').value || today();
   x.ref    = $('qfRef').value.trim();
-  x.valid  = $('qfValid').value || '';
+  x.valid  = $('qfValid').value || quoteValidDefault(x.date);
   x.terms  = $('qfTerms').value;
   x.by     = ME.id; x.byName = ME.name;
   x._at    = now();
@@ -3901,7 +3919,7 @@ function dropQLine(id, i){
 }
 
 /* ---------- printing one ---------- */
-function printQuote(id){
+function printQuote(id, forShare){
   var x = byId(DB.quotes, id);
   var b = BRANDS[x.brand];
   var c = byId(DB.clients, x.client);
@@ -3990,7 +4008,7 @@ function printQuote(id){
     (x.terms ? '<div style="font-size:9pt;font-weight:600;letter-spacing:.06em;'+
       'color:'+b.c1+';margin:7mm 0 1.5mm">TERMS AND CONDITIONS</div>'+
       '<div style="border:1px solid #D8DDE4;padding:3mm;font-size:9.5pt;'+
-      'line-height:1.6;white-space:pre-wrap">'+esc(x.terms)+'</div>' : ''));
+      'line-height:1.6;white-space:pre-wrap">'+esc(x.terms)+'</div>' : ''), null, forShare);
 }
 
 /* ============================================================
@@ -5482,9 +5500,16 @@ function quoteMessage(x){
    client ko PDF aur message dono milein. */
 function shareQuotePdf(id){
   var x = byId(DB.quotes, id); if(!x) return;
-  /* pehle PDF kholo (client ko print ya save karne ke liye) */
+  /* APK: PDF file bana kar phone ka SHARE SHEET kholo \u2014 wahan WhatsApp,
+     email, Drive, sab apps dikhengi. User jis mein chahe share kare. */
+  if(window.Android && typeof Android.sharePdf === 'function'){
+    printQuote(id, true);                 /* forShare = PDF banti aur share sheet khulta */
+    x.sentAt = now(); x.sentBy = ME.name; x._at = now();
+    logIt('quote','Shared PDF \u2014 ' + x.no, ''); save(); if(sharingOn()) syncSoon();
+    return;
+  }
+  /* browser: PDF khol do (Save as PDF) + phir WhatsApp/text share */
   printQuote(id);
-  /* phir WhatsApp par message + tafseel */
   setTimeout(function(){ shareQuote(id); }, 500);
 }
 
@@ -9648,6 +9673,464 @@ function invShare(n){
 }
 
 /* ============================================================
+   MACHINE REPORT  (admin \u2014 catch theft / recurring faults)
+   ============================================================ */
+
+function machineReportPick(){
+  if(ME.role !== 'admin') return toast('For the admin','bad');
+  var machines = DB.machines.filter(function(m){ return !m.cancelled; });
+  if(!machines.length) return toast('No machines yet','bad');
+  modal('Machine report',
+    '<div class="field"><label>Machine</label><select id="mrPick">'+
+      machines.map(function(m){
+        return '<option value="'+m.id+'">'+esc(machineLabel(m))+' \u2014 '+esc(nameOf(DB.clients, m.client))+'</option>';
+      }).join('')+
+    '</select></div>'+
+    '<div class="help">Is machine par ab tak lage saare parts \u2014 kaun, kab, kitne, kitna kharcha. '+
+    'Ek hi part baar baar lage to nishani (kharabi ya theft).</div>',
+    [{t:'Close',cls:'ghost',f:'closeModal()'},{t:'Show',cls:'',f:'machineReport($(\'mrPick\').value)'}]);
+}
+
+function machineReport(machineId){
+  var m = byId(DB.machines, machineId); if(!m) return;
+  var client = nameOf(DB.clients, m.client);
+
+  /* is machine ki complaints */
+  var jobIds = {};
+  DB.complaints.forEach(function(c){ if(c.machine === machineId) jobIds[c.id] = c; });
+
+  /* is machine par lage saare parts (installed) */
+  var fitted = [];
+  DB.parts.forEach(function(p){
+    if(q(p,'installed') <= 0) return;
+    if(!jobIds[p.complaint]) return;                 /* isi machine ki job */
+    var st = p.stock ? byId(DB.stock, p.stock) : null;
+    var each = st ? (parseFloat(st.cost) || 0) : 0;
+    fitted.push({
+      part: st ? stockLabel(st) : (p.name || 'part'),
+      partId: p.stock,
+      qty: q(p,'installed'),
+      each: each,
+      cost: q(p,'installed') * each,
+      by: nameOf(DB.users, p.by),
+      at: p.at || (jobIds[p.complaint] && jobIds[p.complaint].resolved) || '',
+      job: jobIds[p.complaint] ? jobIds[p.complaint].no : ''
+    });
+  });
+  fitted.sort(function(a,b){ return String(a.at) < String(b.at) ? 1 : -1; });
+
+  /* har part ka kitni baar (repeat = nishani) */
+  var byPart = {};
+  fitted.forEach(function(f){
+    byPart[f.part] = byPart[f.part] || { part:f.part, times:0, qty:0, cost:0 };
+    byPart[f.part].times++; byPart[f.part].qty += f.qty; byPart[f.part].cost += f.cost;
+  });
+  var repeats = Object.keys(byPart).map(function(k){ return byPart[k]; })
+    .filter(function(x){ return x.times >= 2; })
+    .sort(function(a,b){ return b.times - a.times; });
+
+  var totalCost = fitted.reduce(function(s,f){ return s + f.cost; }, 0);
+  var lastCounter = (typeof lastCounter === 'function') ? 0 : 0;
+
+  /* screen */
+  var body =
+    '<div class="mr-head"><div class="mr-m">'+esc(machineLabel(m))+'</div>'+
+      '<div class="mr-c">'+esc(client)+(m.serial?' \u00b7 '+esc(m.serial):'')+'</div></div>'+
+    '<div class="mr-figs">'+
+      '<div class="mr-fig"><div class="n">'+fitted.length+'</div><div class="l">Parts fitted</div></div>'+
+      '<div class="mr-fig"><div class="n">'+rs(totalCost)+'</div><div class="l">Total spent</div></div>'+
+      '<div class="mr-fig"><div class="n" style="color:'+(repeats.length?'#AE1F26':'#1A7538')+'">'+repeats.length+'</div><div class="l">Repeated</div></div>'+
+    '</div>';
+
+  if(repeats.length){
+    body += '<div class="mr-flag">\u26A0\uFE0F <b>Baar baar lage parts \u2014 dekhein</b></div>';
+    body += repeats.map(function(x){
+      return '<div class="mr-rep">'+esc(x.part)+' \u2014 <b>'+x.times+' baar</b> ('+x.qty+' pcs, '+rs(x.cost)+')</div>';
+    }).join('');
+  }
+
+  body += '<div class="mr-sec">Every part fitted</div>';
+  body += (fitted.length ? '<table class="mr-tbl"><tr><th>Date</th><th>Part</th><th>Qty</th><th class="num">Cost</th><th>By</th></tr>'+
+    fitted.map(function(f){
+      return '<tr><td>'+(f.at?dmy(String(f.at).slice(0,10)):'\u2014')+'</td>'+
+        '<td>'+esc(f.part)+(f.job?'<div class="mr-job">'+esc(f.job)+'</div>':'')+'</td>'+
+        '<td>'+f.qty+'</td><td class="num">'+rs(f.cost)+'</td><td>'+esc((f.by||'').split(' ')[0])+'</td></tr>';
+    }).join('')+'</table>'
+    : '<div class="empty">No parts fitted to this machine yet.</div>');
+
+  modal('Machine report', body,
+    [{t:'Back',cls:'ghost',f:'machineReportPick()'},
+     {t:'Print',cls:'',f:'machineReportPrint(\''+machineId+'\')'}]);
+}
+
+/* A4 print \u2014 same professional design as other reports */
+function machineReportPrint(machineId){
+  var m = byId(DB.machines, machineId); if(!m) return;
+  var client = nameOf(DB.clients, m.client);
+  var jobIds = {};
+  DB.complaints.forEach(function(c){ if(c.machine === machineId) jobIds[c.id] = c; });
+  var fitted = [];
+  DB.parts.forEach(function(p){
+    if(q(p,'installed') <= 0 || !jobIds[p.complaint]) return;
+    var st = p.stock ? byId(DB.stock, p.stock) : null;
+    var each = st ? (parseFloat(st.cost)||0) : 0;
+    fitted.push({ part: st?stockLabel(st):(p.name||'part'), qty:q(p,'installed'),
+      cost:q(p,'installed')*each, by:nameOf(DB.users,p.by),
+      at:p.at||'', job:jobIds[p.complaint]?jobIds[p.complaint].no:'' });
+  });
+  fitted.sort(function(a,b){ return String(a.at) < String(b.at) ? 1 : -1; });
+  var total = fitted.reduce(function(s,f){ return s+f.cost; }, 0);
+  var byPart = {};
+  fitted.forEach(function(f){ byPart[f.part]=(byPart[f.part]||0)+1; });
+  var repeats = Object.keys(byPart).filter(function(k){ return byPart[k]>=2; });
+
+  var rows = fitted.map(function(f){
+    return '<tr><td>'+(f.at?dmy(String(f.at).slice(0,10)):'')+'</td><td>'+esc(f.part)+'</td>'+
+      '<td>'+(f.job||'')+'</td><td class="num">'+f.qty+'</td>'+
+      '<td class="num">'+Math.round(f.cost).toLocaleString('en-PK')+'</td><td>'+esc(f.by||'')+'</td></tr>';
+  }).join('');
+
+  var meta = '<span><b>Machine:</b> '+esc(machineLabel(m))+'</span>'+
+    '<span><b>Client:</b> '+esc(client)+'</span>'+
+    (m.serial?'<span><b>Serial:</b> '+esc(m.serial)+'</span>':'');
+
+  printBox('Machine Report',
+    '<table><tr><th>Date</th><th>Part</th><th>Job</th><th class="num">Qty</th><th class="num">Cost (Rs)</th><th>Technician</th></tr>'+
+    rows+
+    '<tr><td colspan="4" style="text-align:right"><b>Total spent</b></td>'+
+    '<td class="num"><b>'+Math.round(total).toLocaleString('en-PK')+'</b></td><td></td></tr></table>'+
+    (repeats.length
+      ? '<div class="note"><b class="flag-red">'+repeats.length+' part(s) fitted more than once</b> \u2014 '+
+        esc(repeats.join(', '))+'. Worth checking: a real fault, or parts not reaching the machine.</div>'
+      : '<div class="note"><b class="flag-green">No part fitted twice</b> \u2014 nothing unusual here.</div>'),
+    meta);
+}
+
+/* ============================================================
+   PROFESSIONAL QUOTATION / INVOICE PRINT
+   ============================================================ */
+
+var QP_NAVY = '#0B2E5C', QP_BLUE = '#1B6FC9', QP_GOLD = '#C9A24B',
+    QP_GREEN = '#1E9E6D', QP_INK = '#1A2233', QP_MUTE = '#5B6472';
+
+/* category label + order */
+var QP_CATS = [
+  { key:'machine', label:'Sales of Machines' },
+  { key:'rental',  label:'Rental' },
+  { key:'part',    label:'Parts' },
+  { key:'toner',   label:'Toner' },
+  { key:'service', label:'Services' },
+  { key:'other',   label:'Other' }
+];
+
+function qpHead(title, badge, badgeColour){
+  return '<div class="qp-head">'+
+    '<div class="qp-logo"><img src="'+PCS_LOGO+'"></div>'+
+    '<div class="qp-co"><div class="n">PARAGON COPIER SOLUTION</div>'+
+      '<div class="t">Photocopier Sales, Rental &amp; Service Specialists</div>'+
+      '<div class="a">32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi &nbsp;|&nbsp; Ph: 021-34536010</div>'+
+      '<div class="a">sales@paragoncopiersolution.com &nbsp;|&nbsp; www.paragoncopiersolution.com</div></div>'+
+  '</div>'+
+  '<div class="qp-band"><div class="qp-bt">'+esc(title)+'</div>'+
+    (badge ? '<div class="qp-badge" style="background:'+(badgeColour||QP_GOLD)+'">'+esc(badge)+'</div>' : '')+
+  '</div>';
+}
+
+function qpBoxes(leftTitle, leftBody, rightRows){
+  return '<div class="qp-boxes">'+
+    '<div class="qp-box"><div class="qp-box-h">'+esc(leftTitle)+'</div>'+
+      '<div class="qp-box-b">'+leftBody+'</div></div>'+
+    '<div class="qp-box"><div class="qp-box-h">Details</div>'+
+      '<div class="qp-box-b">'+rightRows.map(function(r){
+        return '<div class="qp-dr"><span>'+esc(r[0])+'</span><b>'+esc(r[1])+'</b></div>';
+      }).join('')+'</div></div>'+
+  '</div>';
+}
+
+/* ---------- QUOTATION ---------- */
+function printQuotePro(id, forShare){
+  var x = byId(DB.quotes, id); if(!x) return;
+  var c = byId(DB.clients, x.client);
+  var rate = parseFloat(x.taxPct) || 0;
+  var rental = x.type === 'rental';
+
+  /* lines category ke hisaab se */
+  var groups = {};
+  (x.lines || []).forEach(function(l){
+    var cat = l.cat || 'other';
+    (groups[cat] = groups[cat] || []).push(l);
+  });
+
+  var grand = 0, grandTax = 0;
+  var tables = QP_CATS.filter(function(cd){ return groups[cd.key]; }).map(function(cd){
+    var rows = '', catTotal = 0;
+    groups[cd.key].forEach(function(l, i){
+      var qty = parseFloat(l.qty) || 1;
+      var price = parseFloat(l.price) || 0;
+      var amt = price * qty;
+      var before = (l.enteredAs === 'after' && rate) ? amt / (1 + rate/100) : amt;
+      var tt = x.tax ? before * rate / 100 : 0;
+      catTotal += before + tt; grand += before; grandTax += tt;
+      rows += '<tr><td>'+(i+1)+'</td>'+
+        '<td><b>'+esc(l.desc)+'</b>'+(l.machine && l.machine!=='\u2014'?'<div class="qp-sub">'+esc(l.machine)+'</div>':'')+'</td>'+
+        '<td class="num">'+qpRs(price)+'</td><td class="num">'+qty+'</td>'+
+        (x.tax ? '<td class="num">'+qpRs(before)+'</td><td class="num">'+(rate)+'%<div class="qp-sub">'+qpRs(tt)+'</div></td>' : '')+
+        '<td class="num"><b>'+qpRs(before+tt)+'</b></td></tr>';
+    });
+    return '<div class="qp-cat">'+esc(cd.label)+
+      '<span class="qp-cat-t">Category Total: '+qpRs(catTotal)+'</span></div>'+
+      '<table class="qp-tbl"><tr><th>#</th><th>Description</th><th class="num">Unit Price</th><th class="num">Qty</th>'+
+      (x.tax ? '<th class="num">Excl. Tax</th><th class="num">Tax</th>' : '')+
+      '<th class="num">Amount</th></tr>'+rows+'</table>';
+  }).join('');
+
+  var validTxt = x.valid ? dmy(x.valid) : dmy(quoteValidDefault(x.date));
+  var body =
+    qpHead('QUOTATION', 'Valid till '+validTxt, QP_GOLD)+
+    qpBoxes('Prepared For',
+      '<div class="qp-cn">'+esc(nameOf(DB.clients, x.client))+'</div>'+
+      (c && c.address ? '<div class="qp-ca">'+esc(c.address)+'</div>' : '')+
+      (c && c.who ? '<div class="qp-ca">'+esc(c.who)+'</div>' : ''),
+      [['Quotation No', x.no], ['Date', dmy(x.date)], ['Valid Until', validTxt],
+       ['Prepared By', ME.name]])+
+    tables+
+    (x.tax
+      ? '<div class="qp-tot"><div class="qp-tr"><span>Total (excl. tax)</span><b>'+qpRs(grand)+'</b></div>'+
+        '<div class="qp-tr"><span>Sales tax '+rate+'%</span><b>'+qpRs(grandTax)+'</b></div>'+
+        '<div class="qp-tr grand"><span>Payable</span><b>'+qpRs(grand+grandTax)+'</b></div></div>'
+      : '<div class="qp-tot"><div class="qp-tr grand"><span>Total</span><b>'+qpRs(grand)+'</b></div></div>')+
+    (x.terms ? '<div class="qp-terms"><div class="qp-terms-h">Terms &amp; Conditions</div>'+
+      '<div class="qp-terms-b">'+esc(x.terms).replace(/\n/g,'<br>')+'</div></div>' : '');
+
+  qpRender(quoteName(x), body, forShare);
+}
+
+/* ---------- INVOICE (no due date, no prepared by) ---------- */
+function printInvoicePro(inv, forShare){
+  if(!inv) return;
+  var clientName = inv.clientName || nameOf(DB.clients, inv.client);
+  var rate = parseFloat(inv.rate) || 0;
+
+  var groups = {};
+  (inv.lines || []).forEach(function(l){ var cat=l.cat||'other'; (groups[cat]=groups[cat]||[]).push(l); });
+
+  var tables = QP_CATS.filter(function(cd){ return groups[cd.key]; }).map(function(cd){
+    var rows='', catTotal=0;
+    groups[cd.key].forEach(function(l,i){
+      var qty=l.qty||1, before=l.before!=null?l.before:(l.unit||0)*qty, tt=l.tax||0;
+      catTotal += before+tt;
+      rows += '<tr><td>'+(i+1)+'</td><td><b>'+esc(l.desc)+'</b></td>'+
+        '<td class="num">'+qty+'</td><td class="num">'+qpRs(before/qty)+'</td>'+
+        '<td class="num"><b>'+qpRs(before+tt)+'</b></td></tr>';
+    });
+    return '<div class="qp-cat">'+esc(cd.label)+'<span class="qp-cat-t">'+qpRs(catTotal)+'</span></div>'+
+      '<table class="qp-tbl"><tr><th>#</th><th>Description</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Amount</th></tr>'+rows+'</table>';
+  }).join('');
+
+  var s = (_mon && _mon.settings) || {};
+  var bank = (s.brands && s.brands[inv.brand]) || {};
+  var body =
+    qpHead('INVOICE', (inv.status==='paid'?'PAID':(inv.status==='cancelled'?'CANCELLED':'UNPAID')),
+           inv.status==='paid'?QP_GREEN:(inv.status==='cancelled'?'#AE1F26':QP_GOLD))+
+    qpBoxes('Bill To',
+      '<div class="qp-cn">'+esc(clientName)+'</div>',
+      [['Invoice No', inv.no], ['Invoice Date', dmy(inv.date)]])+   /* no Due Date, no Prepared By */
+    tables+
+    '<div class="qp-tot">'+
+      (inv.tax?'<div class="qp-tr"><span>Subtotal</span><b>'+qpRs(inv.subtotal)+'</b></div>'+
+        '<div class="qp-tr"><span>Sales tax '+rate+'%</span><b>'+qpRs(inv.taxAmt)+'</b></div>':'')+
+      '<div class="qp-tr grand"><span>Total'+(inv.tax?'':' payable')+'</span><b>'+qpRs(inv.total)+'</b></div>'+
+    '</div>'+
+    ((bank.bankName||bank.accTitle||bank.iban)
+      ? '<div class="qp-bank"><div class="qp-bank-h">Payment Details</div>'+
+        (bank.bankName?'<div class="qp-dr"><span>Bank</span><b>'+esc(bank.bankName)+'</b></div>':'')+
+        (bank.accTitle?'<div class="qp-dr"><span>Account Title</span><b>'+esc(bank.accTitle)+'</b></div>':'')+
+        (bank.iban?'<div class="qp-dr"><span>IBAN</span><b>'+esc(bank.iban)+'</b></div>':'')+
+        '</div>' : '');
+
+  /* Sales Tax Invoice \u2014 alag page, jab tax ho (buyer NTN/STRN/province) */
+  if(inv.tax){
+    var cl = byId(DB.clients, inv.client) || {};
+    var stRows = (inv.lines||[]).map(function(l){
+      var qty=l.qty||1, before=l.before!=null?l.before:(l.unit||0)*qty, tt=l.tax||0;
+      return '<tr><td>'+esc(l.desc)+'</td><td class="num">'+qpRs(before)+'</td>'+
+        '<td class="num">'+rate+'%</td><td class="num">'+qpRs(tt)+'</td>'+
+        '<td class="num">'+qpRs(before+tt)+'</td></tr>';
+    }).join('');
+    var stPage =
+      qpHead('SALES TAX INVOICE', 'Tax Invoice', QP_BLUE)+
+      '<div class="qp-boxes">'+
+        '<div class="qp-box"><div class="qp-box-h">Seller</div><div class="qp-box-b">'+
+          '<div class="qp-cn">Paragon Copier Solution</div>'+
+          '<div class="qp-dr"><span>NTN</span><b>8963611-7</b></div>'+
+          '<div class="qp-dr"><span>STRN</span><b>3277876180532</b></div></div></div>'+
+        '<div class="qp-box"><div class="qp-box-h">Buyer</div><div class="qp-box-b">'+
+          '<div class="qp-cn">'+esc(clientName)+'</div>'+
+          '<div class="qp-dr"><span>NTN/CNIC</span><b>'+esc(cl.ntn||'\u2014')+'</b></div>'+
+          '<div class="qp-dr"><span>STRN</span><b>'+esc(cl.strn||'\u2014')+'</b></div>'+
+          '<div class="qp-dr"><span>Province</span><b>'+esc(cl.province||'Sindh')+'</b></div></div></div>'+
+      '</div>'+
+      '<div class="qp-boxes"><div class="qp-box" style="flex:1"><div class="qp-box-h">Invoice</div>'+
+        '<div class="qp-box-b"><div class="qp-dr"><span>Invoice No</span><b>'+esc(inv.no)+'</b></div>'+
+        '<div class="qp-dr"><span>Date</span><b>'+dmy(inv.date)+'</b></div></div></div></div>'+
+      '<table class="qp-tbl" style="margin-top:3mm"><tr><th>Description</th>'+
+        '<th class="num">Value excl. tax</th><th class="num">Rate</th>'+
+        '<th class="num">Sales tax</th><th class="num">Value incl. tax</th></tr>'+
+        stRows+
+        '<tr style="font-weight:800;background:#EDF2F8"><td>Total</td>'+
+        '<td class="num">'+qpRs(inv.subtotal)+'</td><td></td>'+
+        '<td class="num">'+qpRs(inv.taxAmt)+'</td><td class="num">'+qpRs(inv.total)+'</td></tr></table>';
+    body += '<div style="page-break-before:always"></div>' + stPage;
+  }
+
+  qpRender(inv.no, body, forShare);
+}
+
+/* ---------- EXEMPTION CERTIFICATE ---------- */
+/* Wording SPEC ka exact \u2014 goods same condition as imported, U/S 148/153(5).
+   Commercial invoice number quote hota hai (PG nahi). Sirf goods par, service par nahi. */
+function exemptionCert(inv, signatory){
+  var clientName = inv.clientName || nameOf(DB.clients, inv.client);
+  /* qty + item phrase */
+  var items = (inv.lines||[]).filter(function(l){ return (l.cat||'')!=='service'; });
+  var qty = items.reduce(function(s,l){ return s + (l.qty||1); }, 0);
+  var itemDesc = items.map(function(l){ return l.desc; }).join(', ');
+  var longDate = exemptLongDate(inv.date);
+
+  var css =
+    '@page{size:A4;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+    'body{font-family:Calibri,Carlito,Arial,sans-serif;color:#1A2233;margin:0;font-size:11pt;position:relative}'+
+    '.wrap{padding:18mm 20mm}'+
+    '.ec-logo{text-align:center;margin-bottom:8mm}.ec-logo img{height:22mm}'+
+    '.ec-wm{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);opacity:.05;width:120mm;z-index:0}'+
+    '.ec-body{position:relative;z-index:1;line-height:1.9}'+
+    '.ec-date{margin-bottom:6mm}'+
+    '.ec-to{text-align:center;font-weight:700;text-decoration:underline;margin:6mm 0;font-size:12pt}'+
+    '.ec-p{text-align:justify;margin-bottom:5mm}'+
+    '.ec-sign{margin-top:16mm}.ec-sign b{font-size:11.5pt}'+
+    '.ec-foot{position:fixed;bottom:12mm;left:20mm;right:20mm;text-align:center;font-size:8pt;color:#5B6472;border-top:1px solid #E3E9F2;padding-top:2mm}';
+  var body =
+    '<img class="ec-wm" src="'+PCS_LOGO+'">'+
+    '<div class="ec-logo"><img src="'+PCS_LOGO+'"></div>'+
+    '<div class="ec-body">'+
+      '<div class="ec-date">Date: '+longDate+'</div>'+
+      '<div class="ec-to">To Whom It May Concern</div>'+
+      '<div class="ec-p">It is certified that the invoice has been issued to <b>'+esc(clientName)+'</b> '+
+        'having invoice no <b>'+esc(inv.no)+'</b> for supply of <b>'+qty+'</b> Quantity of <b>'+esc(itemDesc)+'</b> '+
+        'and we undertake that we had paid the withholding tax at the import stage U/S 148 in respect of goods '+
+        'supplied and the goods sold is in the same condition as when imported and subject to U/S 153 (5) of the '+
+        'income tax ordinance 2001 clause 46 to the part -IV of the second schedule of the income tax ordinance '+
+        '2001, no withholding tax to be deducted from the importer who paid the tax under section 148.</div>'+
+      '<div class="ec-p">Therefore, it is requested not to deduct withholding tax.</div>'+
+      '<div>Thank you</div><div style="margin-top:3mm">Yours sincerely</div>'+
+      '<div class="ec-sign"><b>'+esc(signatory||ME.name)+'</b><br>'+
+        '<span style="color:#5B6472">Partner</span><br><br><br>'+
+        '<b style="color:#0B2E5C">PARAGON COPIER SOLUTION</b></div>'+
+    '</div>'+
+    '<div class="ec-foot">32-J, Block 6, PECHS, Shahrah-e-Faisal, Karachi. Phone: 0213-4536010<br>'+
+      'Email: info@paragoncopiersolution.com</div>';
+  return { css:css, body:body };
+}
+function exemptLongDate(d){
+  var mo=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var p=String(d||today()).split('-'); return p[2]+'-'+mo[parseInt(p[1],10)-1]+'-'+p[0];
+}
+function printExemption(inv, signatory){
+  var e = exemptionCert(inv, signatory);
+  var html='<!doctype html><html><head><meta charset="utf-8"><title>Exemption '+esc(inv.no)+
+    '</title><style>'+e.css+'</style></head><body><div class="wrap">'+e.body+'</div></body></html>';
+  var w=window.open('','_blank'); if(!w){toast('Blocked','bad');return;}
+  w.document.write(html); w.document.close(); setTimeout(function(){ w.print(); }, 400);
+}
+
+/* ---------- DELIVERY NOTE (professional) ---------- */
+/* Har delivery address ka apna page. Serial + counter mandatory. PO number+date.
+   Delivered by + Received by signatures. */
+function printDeliveryNote(inv, d){
+  var clientName = inv.clientName || nameOf(DB.clients, inv.client);
+  var rows = (d.items||[]).map(function(it, n){
+    var line = (inv.lines||[])[it.line] || {};
+    return '<tr><td>'+(n+1)+'</td><td><b>'+esc(it.model||line.desc||'')+'</b></td>'+
+      '<td><b>'+esc(it.serial||'\u2014')+'</b></td>'+
+      '<td class="num">'+(it.counter!=null?Number(it.counter).toLocaleString('en-PK'):'\u2014')+'</td>'+
+      '<td class="num">'+(it.qty||1)+'</td><td>'+esc(it.condition||'New')+'</td></tr>';
+  }).join('');
+  var body =
+    qpHead('DELIVERY NOTE', d.no||'', QP_BLUE)+
+    '<div class="qp-boxes">'+
+      '<div class="qp-box"><div class="qp-box-h">Deliver To</div><div class="qp-box-b">'+
+        '<div class="qp-cn">'+esc(clientName)+'</div>'+
+        (d.address?'<div class="qp-ca">'+esc(d.address)+'</div>':'')+'</div></div>'+
+      '<div class="qp-box"><div class="qp-box-h">Details</div><div class="qp-box-b">'+
+        '<div class="qp-dr"><span>Delivery No</span><b>'+esc(d.no||'')+'</b></div>'+
+        '<div class="qp-dr"><span>Date</span><b>'+dmy(d.date)+'</b></div>'+
+        '<div class="qp-dr"><span>Invoice</span><b>'+esc(inv.no)+'</b></div>'+
+        (d.po?'<div class="qp-dr"><span>PO No</span><b>'+esc(d.po)+(d.poDate?' \u00b7 '+dmy(d.poDate):'')+'</b></div>':'')+
+        '</div></div>'+
+    '</div>'+
+    '<table class="qp-tbl" style="margin-top:3mm"><tr><th>#</th><th>Machine / Model</th><th>Serial No.</th>'+
+      '<th class="num">Counter</th><th class="num">Qty</th><th>Condition</th></tr>'+rows+'</table>'+
+    '<div style="display:flex;gap:20mm;margin-top:20mm">'+
+      '<div style="flex:1;border-top:1px solid #1A2233;padding-top:2mm;font-size:9pt">'+
+        '<b>Delivered by</b><br>'+esc(d.deliveredBy||'')+'<br><span style="color:#5B6472">Name, designation, date &amp; signature</span></div>'+
+      '<div style="flex:1;border-top:1px solid #1A2233;padding-top:2mm;font-size:9pt">'+
+        '<b>Received by</b><br>'+esc(d.recvName||'')+(d.recvDesig?', '+esc(d.recvDesig):'')+'<br><span style="color:#5B6472">Name, designation, date &amp; signature</span></div>'+
+    '</div>';
+  qpRender('DN '+(d.no||inv.no), body, false);
+}
+
+function qpRs(v){ return 'Rs. ' + Math.round(v||0).toLocaleString('en-PK'); }
+
+/* render \u2014 print ya (APK) PDF share sheet */
+function qpRender(title, body, forShare){
+  var css =
+    '@page{size:A4;margin:0}'+
+    '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
+    'body{font-family:Calibri,Carlito,Arial,sans-serif;color:'+QP_INK+';margin:0;font-size:10pt}'+
+    '.wrap{padding:12mm 12mm 16mm}'+
+    '.qp-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5mm}'+
+    '.qp-logo img{height:16mm}'+
+    '.qp-co{text-align:right}.qp-co .n{font-size:14pt;font-weight:800;color:'+QP_NAVY+'}'+
+    '.qp-co .t{font-size:8pt;font-style:italic;color:'+QP_MUTE+'}.qp-co .a{font-size:7.5pt;color:'+QP_MUTE+'}'+
+    '.qp-band{background:linear-gradient(120deg,'+QP_NAVY+' 0%,'+QP_BLUE+' 130%);border-radius:3mm;'+
+      'padding:5mm 6mm;display:flex;justify-content:space-between;align-items:center;margin-bottom:5mm}'+
+    '.qp-bt{color:#fff;font-size:20pt;font-weight:800;letter-spacing:1px}'+
+    '.qp-badge{color:#fff;font-size:8.5pt;font-weight:700;padding:2mm 4mm;border-radius:12mm}'+
+    '.qp-boxes{display:flex;gap:4mm;margin-bottom:5mm}'+
+    '.qp-box{flex:1;border:1px solid #E3E9F2;border-radius:2.5mm;overflow:hidden}'+
+    '.qp-box-h{background:'+QP_NAVY+';color:#fff;font-size:8pt;font-weight:700;letter-spacing:.5px;padding:2mm 3.5mm}'+
+    '.qp-box-b{padding:3mm 3.5mm}'+
+    '.qp-cn{font-size:12pt;font-weight:700;color:'+QP_NAVY+'}.qp-ca{font-size:9pt;color:'+QP_MUTE+'}'+
+    '.qp-dr{display:flex;justify-content:space-between;font-size:9pt;padding:1mm 0}.qp-dr b{color:'+QP_NAVY+'}'+
+    '.qp-cat{background:#EDF2F8;color:'+QP_NAVY+';font-weight:700;font-size:9pt;padding:2mm 3.5mm;'+
+      'border-radius:2mm 2mm 0 0;margin-top:3mm;display:flex;justify-content:space-between}'+
+    '.qp-cat-t{color:'+QP_GREEN+'}'+
+    '.qp-tbl{width:100%;border-collapse:collapse;font-size:9pt;margin-bottom:1mm}'+
+    '.qp-tbl th{background:'+QP_NAVY+';color:#fff;text-align:left;padding:1.8mm 2.5mm;font-size:7.5pt}'+
+    '.qp-tbl td{border-bottom:1px solid #E3E9F2;padding:1.8mm 2.5mm;vertical-align:top}'+
+    '.qp-tbl .num{text-align:right}.qp-sub{font-size:7.5pt;color:'+QP_MUTE+'}'+
+    '.qp-tot{margin:4mm 0;margin-left:auto;width:70mm}'+
+    '.qp-tr{display:flex;justify-content:space-between;font-size:10pt;padding:1.5mm 3mm}'+
+    '.qp-tr.grand{background:'+QP_NAVY+';color:#fff;border-radius:2mm;font-size:12pt;font-weight:800;padding:3mm}'+
+    '.qp-bank{border:1px solid #E3E9F2;border-radius:2.5mm;padding:3mm 3.5mm;margin-top:3mm;width:90mm}'+
+    '.qp-bank-h{font-size:8pt;font-weight:700;color:'+QP_NAVY+';letter-spacing:.5px;margin-bottom:2mm}'+
+    '.qp-terms{margin-top:4mm;border-top:1px solid #E3E9F2;padding-top:3mm}'+
+    '.qp-terms-h{font-size:8.5pt;font-weight:700;color:'+QP_NAVY+';margin-bottom:1.5mm}'+
+    '.qp-terms-b{font-size:9pt;color:'+QP_MUTE+';line-height:1.6}';
+  var html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+
+    '</title><style>'+css+'</style></head><body><div class="wrap">'+body+'</div></body></html>';
+
+  if(forShare && window.Android && typeof Android.sharePdf === 'function'){
+    Android.sharePdf(html, String(title).replace(/[^\w\-]+/g,'_')+'.pdf');
+    return;
+  }
+  var w = window.open('', '_blank');
+  if(!w){ toast('The browser blocked the window','bad'); return; }
+  w.document.write(html); w.document.close();
+  setTimeout(function(){ if(!forShare) w.print(); }, 400);
+}
+
+/* ============================================================
    IN-APP CALL  (voice / video, WebRTC)
    ============================================================ */
 
@@ -11155,7 +11638,8 @@ function moneyBox(){
       (r.noCert ? '<div class="note i tap" onclick="paysBox()"><b>' + r.noCert +
         '</b> withholding certificate(s) still to get from clients.</div>' : '')+
       [['\u{1F4CA}','Receivables','Sales and rental, by client', "recvBox('sales')"],
-       ['\u{1F9FE}','Invoices','Made from accepted quotations','invBox()'],
+       ['\u{1F9FE}','Invoices','All invoices \u2014 open, share, or make new','invBox()'],
+       ['\u2795','New direct invoice','Bina quotation \u2014 seedha invoice','invDirectForm()'],
        ['\u{1F4B3}','Payments','Confirm, set against invoices, bounced','paysBox()'],
        ['\u{1F3E2}','Rental invoices','Made from rent and counter readings \u2014 monthly','rentalRunPick()'],
        ['\u{1F4E5}','Import rental invoices','Old way: this month\u2019s Excel from the rental software','rentBox()'],
