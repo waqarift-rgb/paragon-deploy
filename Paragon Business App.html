@@ -3927,7 +3927,8 @@ function dropQLine(id, i){
 }
 
 /* ---------- printing one ---------- */
-function printQuote(id, forShare){
+function printQuote(id, forShare){ printQuotePro(id, forShare); }
+function printQuoteOld(id, forShare){
   var x = byId(DB.quotes, id);
   var b = BRANDS[x.brand];
   var c = byId(DB.clients, x.client);
@@ -12340,7 +12341,8 @@ function brandHead(b, s, title, sub){
 }
 var PAGE_BREAK = '<div style="page-break-after:always"></div>';
 
-function invPrint(n){
+function invPrint(n, forShare){ printInvoicePro(_mon.invs[n], forShare); }
+function invPrintOld(n){
   var i = _mon.invs[n], s = _mon.settings || {}, c = byId(DB.clients, i.client) || {};
   var sn = {}, ctr = {};
   i.deliveries.forEach(function(d){ d.items.forEach(function(it){
