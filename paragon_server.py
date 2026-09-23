@@ -3478,6 +3478,53 @@ def money_route(cid, req, u):
             money_save(cid, d)
             return {"ok": True, "id": iid, "no": no}
 
+        if act == "inv.direct":
+            # Bina quotation ke seedha invoice \u2014 apni lines, tax, client
+            brand = req.get("brand") or "paragon"
+            b = d["settings"]["brands"].get(brand) or {}
+            if not b.get("prefix") or b.get("next") in (None, ""):
+                return {"ok": False, "msg": "Set this brand's invoice prefix and next number first (Money \u2192 Settings)."}
+            if not req.get("date"):
+                return {"ok": False, "msg": "Enter the invoice date."}
+            client = str(req.get("client") or "")
+            if not client:
+                return {"ok": False, "msg": "Choose a client."}
+            in_lines = req.get("lines") or []
+            if not in_lines:
+                return {"ok": False, "msg": "Add at least one line."}
+            kind = req.get("type") if req.get("type") in ("sales", "service", "cash") else "sales"
+            taxed = bool(req.get("tax")) and kind != "cash"
+            rate = float(req.get("rate") or 0) if taxed else 0.0
+            lines, sub, tax = [], 0.0, 0.0
+            for l in in_lines:
+                qty = float(l.get("qty") or 1)
+                price = float(l.get("price") or 0)
+                amt = price * qty
+                before = amt / (1 + rate / 100) if (l.get("enteredAs") == "after" and rate) else amt
+                tt = before * rate / 100
+                lines.append({"desc": str(l.get("desc", "")), "cat": str(l.get("cat", "other")),
+                              "qty": qty, "unit": round(before / qty, 2) if qty else before,
+                              "before": round(before, 2), "tax": round(tt, 2),
+                              "after": round(before + tt, 2), "warranty": bool(l.get("warranty"))})
+                sub += before; tax += tt
+            terms = req.get("terms") or {"kind": "days", "days": 30}
+            day = str(req["date"])[:10]
+            due = _add_days(day, terms.get("days", 0)) if terms.get("kind") == "days" else day
+            no = "%s%s" % (b["prefix"], b["next"])
+            if any(i["no"] == no for i in d["sinv"].values()):
+                return {"ok": False, "msg": "Invoice number %s is already used." % no}
+            b["next"] = int(b["next"]) + 1
+            iid = secrets.token_hex(6)
+            d["sinv"][iid] = {"id": iid, "no": no, "brand": brand, "client": client,
+                              "quote": "", "quoteNo": "", "type": kind, "direct": True,
+                              "date": day, "due": due, "terms": terms,
+                              "po": str(req.get("po") or ""), "poDate": str(req.get("poDate") or ""),
+                              "tax": taxed, "rate": rate, "lines": lines,
+                              "subtotal": round(sub, 2), "taxAmt": round(tax, 2),
+                              "total": round(sub + tax, 2), "status": "issued", "by": who, "at": stamp}
+            money_save(cid, d)
+            return {"ok": True, "id": iid, "no": no}
+
         if act == "inv.cancel":
             i = d["sinv"].get(str(req.get("id") or ""))
             why = str(req.get("reason") or "").strip()
