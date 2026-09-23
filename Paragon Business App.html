@@ -9833,11 +9833,9 @@ var QP_CATS = [
 ];
 
 function qpHead(title, badge, badgeColour){
-  /* Saaf header: sirf logo center mein, phir title bar. Koi letterhead text nahi. */
+  /* Saaf header: sirf logo center mein, phir title bar (center). Koi badge nahi. */
   return '<div class="qp-logo-c"><img src="'+PCS_LOGO+'"></div>'+
-  '<div class="qp-band"><div class="qp-bt">'+esc(title)+'</div>'+
-    (badge ? '<div class="qp-badge" style="background:'+(badgeColour||QP_GOLD)+'">'+esc(badge)+'</div>' : '')+
-  '</div>';
+  '<div class="qp-band"><div class="qp-bt">'+esc(title)+'</div></div>';
 }
 
 function qpBoxes(leftTitle, leftBody, rightRows){
@@ -9893,10 +9891,8 @@ function printQuotePro(id, forShare){
     qpHead('QUOTATION', 'Valid till '+validTxt, QP_GOLD)+
     qpBoxes('Prepared For',
       '<div class="qp-cn">'+esc(nameOf(DB.clients, x.client))+'</div>'+
-      (c && c.address ? '<div class="qp-ca">'+esc(c.address)+'</div>' : '')+
-      (c && c.who ? '<div class="qp-ca">'+esc(c.who)+'</div>' : ''),
-      [['Quotation No', x.no], ['Date', dmy(x.date)], ['Valid Until', validTxt],
-       ['Prepared By', ME.name]])+
+      (c && c.address ? '<div class="qp-ca">'+esc(c.address)+'</div>' : ''),
+      [['Quotation No', x.no], ['Date', dmy(x.date)], ['Valid Until', validTxt]])+
     tables+
     (x.tax
       ? '<div class="qp-tot"><div class="qp-tr"><span>Total (excl. tax)</span><b>'+qpRs(grand)+'</b></div>'+
@@ -9904,7 +9900,8 @@ function printQuotePro(id, forShare){
         '<div class="qp-tr grand"><span>Payable</span><b>'+qpRs(grand+grandTax)+'</b></div></div>'
       : '<div class="qp-tot"><div class="qp-tr grand"><span>Total</span><b>'+qpRs(grand)+'</b></div></div>')+
     (x.terms ? '<div class="qp-terms"><div class="qp-terms-h">Terms &amp; Conditions</div>'+
-      '<div class="qp-terms-b">'+esc(x.terms).replace(/\n/g,'<br>')+'</div></div>' : '');
+      '<div class="qp-terms-b">'+esc(x.terms).replace(/\n/g,'<br>')+'</div></div>' : '')+
+    qpSign();
 
   qpRender(quoteName(x), body, forShare);
 }
@@ -9950,7 +9947,8 @@ function printInvoicePro(inv, forShare){
         (bank.bankName?'<div class="qp-dr"><span>Bank</span><b>'+esc(bank.bankName)+'</b></div>':'')+
         (bank.accTitle?'<div class="qp-dr"><span>Account Title</span><b>'+esc(bank.accTitle)+'</b></div>':'')+
         (bank.iban?'<div class="qp-dr"><span>IBAN</span><b>'+esc(bank.iban)+'</b></div>':'')+
-        '</div>' : '');
+        '</div>' : '')+
+    qpSign();
 
   /* Sales Tax Invoice \u2014 alag page, jab tax ho (buyer NTN/STRN/province) */
   if(inv.tax){
@@ -10083,6 +10081,18 @@ function printDeliveryNote(inv, d){
   qpRender('DN '+(d.no||inv.no), body, false);
 }
 
+/* Signature block: 2 columns, koi individual naam nahi (guide ke mutabiq) */
+function qpSign(){
+  return '<div class="qp-sign">'+
+    '<div class="qp-sign-c"><div class="qp-sign-l"></div>'+
+      '<div class="qp-sign-t">Authorized Signature</div>'+
+      '<div class="qp-sign-s">Paragon Copier Solution</div></div>'+
+    '<div class="qp-sign-c"><div class="qp-sign-l"></div>'+
+      '<div class="qp-sign-t">Client Acceptance</div>'+
+      '<div class="qp-sign-s">Signature &amp; Stamp</div></div>'+
+  '</div>';
+}
+
 function qpRs(v){ return 'Rs. ' + Math.round(v||0).toLocaleString('en-PK'); }
 
 /* ---------- WARRANTY CERTIFICATE ---------- */
@@ -10133,9 +10143,8 @@ function qpRender(title, body, forShare){
     '.qp-foot{margin-top:8mm;padding-top:3mm;border-top:1px solid #E3E9F2;text-align:center;'+
       'font-size:8pt;color:'+QP_MUTE+'}'+
     '.qp-band{background:linear-gradient(120deg,'+QP_NAVY+' 0%,'+QP_BLUE+' 130%);border-radius:3mm;'+
-      'padding:5mm 6mm;display:flex;justify-content:space-between;align-items:center;margin-bottom:5mm}'+
-    '.qp-bt{color:#fff;font-size:20pt;font-weight:800;letter-spacing:1px}'+
-    '.qp-badge{color:#fff;font-size:8.5pt;font-weight:700;padding:2mm 4mm;border-radius:12mm}'+
+      'padding:5mm 6mm;display:flex;justify-content:center;align-items:center;margin-bottom:5mm}'+
+    '.qp-bt{color:#fff;font-size:22pt;font-weight:800;letter-spacing:1px;text-align:center;width:100%}'+
     '.qp-boxes{display:flex;gap:4mm;margin-bottom:5mm}'+
     '.qp-box{flex:1;border:1px solid #E3E9F2;border-radius:2.5mm;overflow:hidden}'+
     '.qp-box-h{background:'+QP_NAVY+';color:#fff;font-size:8pt;font-weight:700;letter-spacing:.5px;padding:2mm 3.5mm}'+
@@ -10158,6 +10167,11 @@ function qpRender(title, body, forShare){
     '.qp-terms{margin-top:4mm;border-top:1px solid #E3E9F2;padding-top:3mm}'+
     '.qp-terms-h{font-size:8.5pt;font-weight:700;color:'+QP_NAVY+';margin-bottom:1.5mm}'+
     '.qp-terms-b{font-size:9pt;color:'+QP_MUTE+';line-height:1.6}'+
+    '.qp-sign{display:flex;gap:20mm;margin-top:16mm}'+
+    '.qp-sign-c{flex:1;text-align:center}'+
+    '.qp-sign-l{border-top:1px solid #1A2233;margin-bottom:2mm}'+
+    '.qp-sign-t{font-size:9.5pt;font-weight:700;color:'+QP_NAVY+'}'+
+    '.qp-sign-s{font-size:8pt;color:'+QP_MUTE+'}'+
     '.qp-war{margin-top:4mm;line-height:1.7}'+
     '.qp-war-h{font-size:10pt;font-weight:700;color:'+QP_NAVY+';margin:4mm 0 1mm}'+
     '.qp-war-p{font-size:9.5pt;color:#1A2233;text-align:justify}';
@@ -10167,17 +10181,18 @@ function qpRender(title, body, forShare){
     'html{margin:0;background:#525659;overflow-x:hidden}'+
     'body{margin:0;background:#525659}'+
     '@media screen{'+
-    '  body{padding:6px 0}'+
-    '  .wrap{width:210mm;min-height:297mm;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.4);'+
-    '    transform-origin:top left;margin:0 auto}'+
+    '  body{padding:0}'+
+    '  .wrap{width:794px;min-height:1123px;background:#fff;'+
+    '    transform-origin:top left;margin:0 auto;overflow:hidden}'+
     '}'+
-    '@media print{ body{background:#fff;padding:0} .wrap{box-shadow:none;transform:none!important;width:auto;margin:0} }';
+    '@media print{ body{background:#fff;padding:0} .wrap{transform:none!important;width:auto;margin:0} }';
   var fitScript =
     '<script>(function(){function fit(){var w=document.querySelector(".wrap");if(!w)return;'+
     'w.style.transform="none";w.style.margin="0 auto";'+
-    'var avail=document.documentElement.clientWidth-6;var pw=w.offsetWidth;'+
-    'if(pw>avail){var s=avail/pw;w.style.transformOrigin="top left";w.style.transform="scale("+s.toFixed(4)+")";'+
-    'w.style.margin="0";document.body.style.height=(w.offsetHeight*s+12)+"px";document.body.style.width=avail+"px";}}'+
+    'var avail=document.documentElement.clientWidth;var pw=794;'+
+    /* sirf tab scale jab screen 790 se choti (phone browser); PDF WebView 794 par NAHI */
+    'if(avail>0 && avail<790){var s=avail/pw;w.style.transformOrigin="top left";w.style.transform="scale("+s.toFixed(4)+")";'+
+    'w.style.margin="0";document.body.style.height=(w.offsetHeight*s+8)+"px";document.body.style.width=avail+"px";}}'+
     'if(document.readyState==="complete")fit();else window.addEventListener("load",fit);'+
     'window.addEventListener("resize",fit);setTimeout(fit,300);})();<\/script>';
   var footer = '<div class="qp-foot">Paragon Copier Solution &nbsp;\u00b7&nbsp; '+
@@ -10221,6 +10236,12 @@ function docViewClose(){
   if(w){ w.style.opacity='0'; setTimeout(function(){ if(w.parentNode) w.parentNode.removeChild(w); }, 200); }
 }
 function docViewPrint(){
+  /* APK: Android ka print/PDF (WebView iframe print nahi chalta).
+     Browser: iframe print. */
+  if(window.Android && typeof Android.sharePdf === 'function' && window._docViewHtml){
+    Android.sharePdf(window._docViewHtml, 'Paragon.pdf');
+    return;
+  }
   var fr = document.getElementById('dvFrame');
   if(fr && fr.contentWindow){ fr.contentWindow.focus(); fr.contentWindow.print(); }
 }
