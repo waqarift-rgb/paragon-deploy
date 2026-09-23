@@ -216,6 +216,14 @@ textarea{resize:vertical;min-height:80px}
 .gs-ic{font-size:19px;flex:none}
 .gs-t{font-size:14px;font-weight:600;color:#1C2E4A}.gs-s{font-size:12px;color:#667}
 .gs-go{color:#2B8ABA;font-size:18px;flex:none}
+.docview{position:fixed;inset:0;z-index:300;background:#525659;display:flex;flex-direction:column;transition:opacity .2s}
+.dv-bar{display:flex;align-items:center;gap:10px;background:#12395E;color:#fff;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));flex:none}
+.dv-x{background:rgba(255,255,255,.15);border:0;color:#fff;padding:8px 14px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+.dv-x:active{background:rgba(255,255,255,.3)}
+.dv-t{flex:1;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(255,255,255,.85)}
+.dv-acts button{background:rgba(255,255,255,.15);border:0;color:#fff;padding:8px 12px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-left:5px}
+.dv-acts button:active{background:rgba(255,255,255,.3)}
+.dv-frame{flex:1;border:0;width:100%;background:#525659;overflow:auto}
 .us-photo-row{display:flex;align-items:center;gap:14px}
 .us-av{width:64px;height:64px;border-radius:50%;background:#E3EAF2;color:#12395E;font-weight:700;font-size:22px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
 .us-av img{width:100%;height:100%;object-fit:cover}
@@ -572,7 +580,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.11';
+var APP_VERSION = '1.12';
 var DEFAULT_SERVER = 'http://139.180.219.41:8080/';
 var DB = {};
 
@@ -9824,13 +9832,8 @@ var QP_CATS = [
 ];
 
 function qpHead(title, badge, badgeColour){
-  return '<div class="qp-head">'+
-    '<div class="qp-logo"><img src="'+PCS_LOGO+'"></div>'+
-    '<div class="qp-co"><div class="n">PARAGON COPIER SOLUTION</div>'+
-      '<div class="t">Photocopier Sales, Rental &amp; Service Specialists</div>'+
-      '<div class="a">32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi &nbsp;|&nbsp; Ph: 021-34536010</div>'+
-      '<div class="a">sales@paragoncopiersolution.com &nbsp;|&nbsp; www.paragoncopiersolution.com</div></div>'+
-  '</div>'+
+  /* Saaf header: sirf logo center mein, phir title bar. Koi letterhead text nahi. */
+  return '<div class="qp-logo-c"><img src="'+PCS_LOGO+'"></div>'+
   '<div class="qp-band"><div class="qp-bt">'+esc(title)+'</div>'+
     (badge ? '<div class="qp-badge" style="background:'+(badgeColour||QP_GOLD)+'">'+esc(badge)+'</div>' : '')+
   '</div>';
@@ -10081,6 +10084,43 @@ function printDeliveryNote(inv, d){
 
 function qpRs(v){ return 'Rs. ' + Math.round(v||0).toLocaleString('en-PK'); }
 
+/* ---------- WARRANTY CERTIFICATE ---------- */
+/* Jab koi line warranty rakhe. 12 months from DELIVERY date. Clean design,
+   qpRender use karta hai (logo + footer). */
+function printWarranty(inv, machine, serial, deliveredDate){
+  var clientName = inv.clientName || nameOf(DB.clients, inv.client);
+  var start = deliveredDate || inv.date;
+  var end = new Date(start + 'T12:00:00');
+  end.setFullYear(end.getFullYear() + 1); end.setDate(end.getDate() - 1);
+  var endStr = end.toISOString().slice(0,10);
+
+  var body =
+    qpHead('WARRANTY CERTIFICATE', 'Twelve Months', QP_GREEN)+
+    qpBoxes('Supplied To',
+      '<div class="qp-cn">'+esc(clientName)+'</div>',
+      [['Machine', esc(machine||'')], ['Serial No.', esc(serial||'\u2014')],
+       ['Delivered on', dmy(start)], ['Invoice', esc(inv.no)]])+
+    '<div class="qp-war">'+
+      '<div class="qp-war-p"><b>Warranty period:</b> Twelve (12) months from the date of delivery \u2014 '+
+        dmy(start)+' to '+dmy(endStr)+'.</div>'+
+      /* Settings mein warranty wording ho to WO chhapo (admin badal sakta) */
+      ((_mon && _mon.settings && _mon.settings.warranty)
+        ? '<div class="qp-war-p" style="white-space:pre-line;margin-top:3mm">'+esc(_mon.settings.warranty)+'</div>'
+        : '<div class="qp-war-h">What is covered</div>'+
+      '<div class="qp-war-p">All parts and labour required to correct manufacturing or component '+
+        'defects arising in normal operation.</div>'+
+      '<div class="qp-war-h">What is not covered</div>'+
+      '<div class="qp-war-p">Consumable items including toner, developer, drums and staples. Paper. '+
+        'Damage arising from misuse, negligence, electrical fault, fire, theft, water, or the use of '+
+        'non-genuine consumables. Work carried out by any person other than the Company\u2019s '+
+        'authorised technicians.</div>'+
+      '<div class="qp-war-h">How to claim</div>'+
+      '<div class="qp-war-p">Contact Paragon Copier Solution on 021-34536010 or email '+
+        'service@paragoncopiersolution.com, quoting the serial number above.</div>')+
+    '</div>';
+  qpRender('Warranty ' + (serial||inv.no), body, false);
+}
+
 /* render \u2014 print ya (APK) PDF share sheet */
 function qpRender(title, body, forShare){
   var css =
@@ -10088,10 +10128,9 @@ function qpRender(title, body, forShare){
     '*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+
     'body{font-family:Calibri,Carlito,Arial,sans-serif;color:'+QP_INK+';margin:0;font-size:10pt}'+
     '.wrap{padding:12mm 12mm 16mm}'+
-    '.qp-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5mm}'+
-    '.qp-logo img{height:16mm}'+
-    '.qp-co{text-align:right}.qp-co .n{font-size:14pt;font-weight:800;color:'+QP_NAVY+'}'+
-    '.qp-co .t{font-size:8pt;font-style:italic;color:'+QP_MUTE+'}.qp-co .a{font-size:7.5pt;color:'+QP_MUTE+'}'+
+    '.qp-logo-c{text-align:center;margin-bottom:4mm}.qp-logo-c img{height:20mm}'+
+    '.qp-foot{margin-top:8mm;padding-top:3mm;border-top:1px solid #E3E9F2;text-align:center;'+
+      'font-size:8pt;color:'+QP_MUTE+'}'+
     '.qp-band{background:linear-gradient(120deg,'+QP_NAVY+' 0%,'+QP_BLUE+' 130%);border-radius:3mm;'+
       'padding:5mm 6mm;display:flex;justify-content:space-between;align-items:center;margin-bottom:5mm}'+
     '.qp-bt{color:#fff;font-size:20pt;font-weight:800;letter-spacing:1px}'+
@@ -10102,9 +10141,10 @@ function qpRender(title, body, forShare){
     '.qp-box-b{padding:3mm 3.5mm}'+
     '.qp-cn{font-size:12pt;font-weight:700;color:'+QP_NAVY+'}.qp-ca{font-size:9pt;color:'+QP_MUTE+'}'+
     '.qp-dr{display:flex;justify-content:space-between;font-size:9pt;padding:1mm 0}.qp-dr b{color:'+QP_NAVY+'}'+
-    '.qp-cat{background:#EDF2F8;color:'+QP_NAVY+';font-weight:700;font-size:9pt;padding:2mm 3.5mm;'+
-      'border-radius:2mm 2mm 0 0;margin-top:3mm;display:flex;justify-content:space-between}'+
-    '.qp-cat-t{color:'+QP_GREEN+'}'+
+    '.qp-cat{background:#EDF2F8;color:'+QP_NAVY+';font-weight:700;font-size:9.5pt;padding:2.2mm 4mm;'+
+      'border-radius:2mm 2mm 0 0;margin-top:4mm;display:flex;justify-content:space-between;align-items:center;'+
+      'border-left:3px solid '+QP_BLUE+'}'+
+    '.qp-cat-t{color:'+QP_GREEN+';font-size:8.5pt}'+
     '.qp-tbl{width:100%;border-collapse:collapse;font-size:9pt;margin-bottom:1mm}'+
     '.qp-tbl th{background:'+QP_NAVY+';color:#fff;text-align:left;padding:1.8mm 2.5mm;font-size:7.5pt}'+
     '.qp-tbl td{border-bottom:1px solid #E3E9F2;padding:1.8mm 2.5mm;vertical-align:top}'+
@@ -10116,18 +10156,72 @@ function qpRender(title, body, forShare){
     '.qp-bank-h{font-size:8pt;font-weight:700;color:'+QP_NAVY+';letter-spacing:.5px;margin-bottom:2mm}'+
     '.qp-terms{margin-top:4mm;border-top:1px solid #E3E9F2;padding-top:3mm}'+
     '.qp-terms-h{font-size:8.5pt;font-weight:700;color:'+QP_NAVY+';margin-bottom:1.5mm}'+
-    '.qp-terms-b{font-size:9pt;color:'+QP_MUTE+';line-height:1.6}';
-  var html = '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+
-    '</title><style>'+css+'</style></head><body><div class="wrap">'+body+'</div></body></html>';
+    '.qp-terms-b{font-size:9pt;color:'+QP_MUTE+';line-height:1.6}'+
+    '.qp-war{margin-top:4mm;line-height:1.7}'+
+    '.qp-war-h{font-size:10pt;font-weight:700;color:'+QP_NAVY+';margin:4mm 0 1mm}'+
+    '.qp-war-p{font-size:9.5pt;color:#1A2233;text-align:justify}';
+  /* Phone par A4 document fit ho \u2014 page ko center kar ke scale karo,
+     scroll bhi ho. Print par poora A4. */
+  var viewCss =
+    'html{margin:0;background:#525659;overflow-x:hidden}'+
+    'body{margin:0;background:#525659}'+
+    '@media screen{'+
+    '  body{padding:6px 0}'+
+    '  .wrap{width:210mm;min-height:297mm;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.4);'+
+    '    transform-origin:top left;margin:0 auto}'+
+    '}'+
+    '@media print{ body{background:#fff;padding:0} .wrap{box-shadow:none;transform:none!important;width:auto;margin:0} }';
+  var fitScript =
+    '<script>(function(){function fit(){var w=document.querySelector(".wrap");if(!w)return;'+
+    'w.style.transform="none";w.style.margin="0 auto";'+
+    'var avail=document.documentElement.clientWidth-6;var pw=w.offsetWidth;'+
+    'if(pw>avail){var s=avail/pw;w.style.transformOrigin="top left";w.style.transform="scale("+s.toFixed(4)+")";'+
+    'w.style.margin="0";document.body.style.height=(w.offsetHeight*s+12)+"px";document.body.style.width=avail+"px";}}'+
+    'if(document.readyState==="complete")fit();else window.addEventListener("load",fit);'+
+    'window.addEventListener("resize",fit);setTimeout(fit,300);})();<\/script>';
+  var footer = '<div class="qp-foot">Paragon Copier Solution &nbsp;\u00b7&nbsp; '+
+    '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi &nbsp;\u00b7&nbsp; Ph: 021-34536010 &nbsp;\u00b7&nbsp; '+
+    'sales@paragoncopiersolution.com</div>';
+  var html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(title)+
+    '</title><style>'+css+viewCss+'</style></head><body><div class="wrap">'+body+footer+'</div>'+fitScript+'</body></html>';
 
+  /* Share: APK par seedha PDF share sheet */
   if(forShare && window.Android && typeof Android.sharePdf === 'function'){
     Android.sharePdf(html, String(title).replace(/[^\w\-]+/g,'_')+'.pdf');
     return;
   }
-  var w = window.open('', '_blank');
-  if(!w){ toast('The browser blocked the window','bad'); return; }
-  w.document.write(html); w.document.close();
-  setTimeout(function(){ if(!forShare) w.print(); }, 400);
+
+  /* App ke ANDAR overlay mein dikhao \u2014 X se band ho jaye (poori app nahi).
+     Upar bar: Close, Print, Share. Neeche iframe mein document. */
+  var _pdfHtml = html, _pdfTitle = title;
+  var wrap = document.getElementById('docView');
+  if(wrap) wrap.parentNode.removeChild(wrap);
+  wrap = document.createElement('div');
+  wrap.id = 'docView';
+  wrap.className = 'docview';
+  wrap.innerHTML =
+    '<div class="dv-bar">'+
+      '<button class="dv-x" onclick="docViewClose()">\u2715 Close</button>'+
+      '<div class="dv-t">'+esc(title)+'</div>'+
+      '<div class="dv-acts">'+
+        '<button onclick="docViewPrint()">\u{1F5A8}\uFE0F Print</button>'+
+      '</div>'+
+    '</div>'+
+    '<iframe id="dvFrame" class="dv-frame"></iframe>';
+  document.body.appendChild(wrap);
+  var fr = document.getElementById('dvFrame');
+  var d = fr.contentWindow.document;
+  d.open(); d.write(html); d.close();
+  window._docViewHtml = html;
+}
+
+function docViewClose(){
+  var w = document.getElementById('docView');
+  if(w){ w.style.opacity='0'; setTimeout(function(){ if(w.parentNode) w.parentNode.removeChild(w); }, 200); }
+}
+function docViewPrint(){
+  var fr = document.getElementById('dvFrame');
+  if(fr && fr.contentWindow){ fr.contentWindow.focus(); fr.contentWindow.print(); }
 }
 
 /* ============================================================
