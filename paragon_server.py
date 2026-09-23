@@ -130,6 +130,76 @@ def store_save(cid, d):
         os.chmod(path, 0o600)
     except OSError:
         pass
+    _daily_backup(cid, d)
+
+
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+BACKUP_KEEP = 14      # do hafte ki rozana copies rakho
+
+
+def _daily_backup(cid, d):
+    """Din mein ek dafa poore data ki alag copy rakho, taake kabhi kuch
+    khoye to wapas laaya ja sake. Purani copies apne aap saaf ho jati hain."""
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        day = datetime.date.today().isoformat()
+        name = "%s-%s.json" % (cid, day)
+        dest = os.path.join(BACKUP_DIR, name)
+        # purani copies har dafa saaf karo (chahe aaj ki copy bane ya na bane)
+        mine0 = sorted(f for f in os.listdir(BACKUP_DIR)
+                       if f.startswith(cid + "-") and f.endswith(".json"))
+        for old0 in mine0[:-BACKUP_KEEP]:
+            try:
+                os.remove(os.path.join(BACKUP_DIR, old0))
+            except OSError:
+                pass
+        if os.path.exists(dest):
+            return                      # aaj ki copy pehle se hai
+        tmp = dest + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(d, fh, separators=(",", ":"))
+        os.replace(tmp, dest)
+        os.chmod(dest, 0o600)
+        # purani copies (14 din se zyada) hata do
+        mine = sorted(f for f in os.listdir(BACKUP_DIR)
+                      if f.startswith(cid + "-") and f.endswith(".json"))
+        for old in mine[:-BACKUP_KEEP]:
+            try:
+                os.remove(os.path.join(BACKUP_DIR, old))
+            except OSError:
+                pass
+    except Exception:
+        pass                            # backup fail ho to bhi asal kaam na ruke
+
+
+def backup_list(cid):
+    """Admin ko dikhao kaunsi backup copies mehfooz hain."""
+    try:
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        out = []
+        for f in sorted(os.listdir(BACKUP_DIR), reverse=True):
+            if f.startswith(cid + "-") and f.endswith(".json"):
+                full = os.path.join(BACKUP_DIR, f)
+                out.append({"day": f[len(cid) + 1:-5],
+                            "size": os.path.getsize(full)})
+        return {"ok": True, "backups": out[:BACKUP_KEEP]}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
+
+
+def backup_get(cid, req):
+    """Ek din ki backup copy poori wapas do (admin download kar sake)."""
+    day = str(req.get("day") or "")
+    if not day:
+        return {"ok": False, "msg": "Which day?"}
+    f = os.path.join(BACKUP_DIR, "%s-%s.json" % (cid, day))
+    if not os.path.exists(f):
+        return {"ok": False, "msg": "That backup is not here."}
+    try:
+        with open(f, encoding="utf-8") as fh:
+            return {"ok": True, "day": day, "data": json.load(fh)}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
 
 
 def next_number(cid, req):
@@ -1978,10 +2048,10 @@ PERM_DEFAULTS = {
     "stock.edit": ["admin", "store"], "stock.see": ["admin", "supervisor", "store"],
     "complaint.add": ["admin", "supervisor", "store"], "complaint.assign": ["admin", "supervisor", "store"],
     "complaint.all": ["admin", "supervisor", "store"],
-    "part.approve": ["admin", "supervisor", "store"], "part.issue": ["admin", "store"],
+    "part.approve": ["admin", "supervisor", "store"], "part.issue": ["admin", "supervisor", "store"],
     "reports": ["admin", "supervisor", "store"], "jobs": ["admin", "supervisor", "store", "tech"],
-    "fleet": ["admin", "supervisor", "store"], "quotes": ["admin", "supervisor"],
-    "tasks": ["admin", "supervisor"], "attendance.all": ["admin"], "salary": ["admin"],
+    "fleet": ["admin", "supervisor", "store"], "quotes": ["admin"],
+    "tasks": ["admin", "supervisor"], "attendance.all": ["admin", "supervisor"], "salary": ["admin"],
     "money": ["admin"], "collect": ["admin", "supervisor", "tech"], "delivery": ["admin", "store"],
     "manuals": ["admin"],
 }
@@ -2374,6 +2444,12 @@ def hr_route(cid, req, ip):
         return chat_route(cid, req, u)
     if str(act or "").startswith("loc."):
         return loc_route(cid, req, u)
+    if act == "backup.list":
+        if not allowed(cid, u, "settings"): return {"ok": False, "msg": "Admin only"}
+        return backup_list(cid)
+    if act == "backup.get":
+        if not allowed(cid, u, "settings"): return {"ok": False, "msg": "Admin only"}
+        return backup_get(cid, req)
     if act == "admin.settings":
         return admin_route(cid, req, u)
     return {"ok": False, "msg": "Unknown action"}
@@ -3128,6 +3204,24 @@ def money_route(cid, req, u):
     with _money_lock:
         d = money_load(cid)
 
+        # --- client profit ke liye: is client ka is mahine ka confirmed paisa ---
+        if act == "received":
+            if not admin:
+                return refuse()
+            client = str(req.get("client") or "")
+            month = str(req.get("month") or "")
+            total = 0.0
+            for pay in d.get("pays", {}).values():
+                if pay.get("status") != "confirmed":
+                    continue
+                if pay.get("client") != client:
+                    continue
+                when = str(pay.get("confirmedAt") or pay.get("at") or "")
+                if month and when[:7] != month:
+                    continue
+                total += float(pay.get("amount") or 0)
+            return {"ok": True, "received": round(total)}
+
         # --- a technician in front of the client, collecting ---
         if act == "pay.collect":
             if not allowed(cid, u, "collect"):
@@ -3629,6 +3723,57 @@ AI_DEFAULTS = {
     "default_allowed": False, "reader_for_techs": False,
     "tested_at": "", "index_built_at": "", "max_words": 180,
 }
+
+
+# The six drafting agents. Each only ever writes a draft; a person reads it
+# and sends it. The master switch and the daily limit still apply.
+AI_AGENTS = [
+    {"id": "enquiry", "label": "Enquiry reply",
+     "hint": "A customer\u2019s enquiry \u2014 draft a warm, professional reply.",
+     "system": "You draft replies for Paragon Copier Solution, a Ricoh photocopier "
+               "sales/rental/service firm in Karachi. Write a warm, professional, concise "
+               "reply to the customer enquiry given. Never invent prices or promises; if a "
+               "figure is needed, leave a clear [blank] for the office to fill. End with the "
+               "firm\u2019s name. This is a DRAFT for a human to check and send."},
+    {"id": "quotation", "label": "Quotation wording",
+     "hint": "Details of what to quote \u2014 draft the covering wording.",
+     "system": "You draft the covering wording of a quotation for Paragon Copier Solution. "
+               "From the details given, write a clear, professional quotation note (not the "
+               "price table). Leave [blank] where an exact figure or model is uncertain. A "
+               "DRAFT for a human to check."},
+    {"id": "followup", "label": "Follow-up message",
+     "hint": "Who to follow up and about what \u2014 draft the nudge.",
+     "system": "You draft a polite follow-up message for Paragon Copier Solution to a client "
+               "about a pending quotation, payment or service. Short, courteous, never pushy. "
+               "A DRAFT for a human to check and send."},
+    {"id": "consumable", "label": "Consumable reminder",
+     "hint": "A machine and its usage \u2014 draft a reminder that toner/parts are due.",
+     "system": "You draft a friendly reminder from Paragon Copier Solution that a client\u2019s "
+               "machine is likely due for toner or a consumable soon, based on the usage given. "
+               "Suggest arranging a visit. A DRAFT for a human to check."},
+    {"id": "tender", "label": "Tender summary",
+     "hint": "Paste a tender notice \u2014 draft a short summary and what is needed.",
+     "system": "You summarise a government or corporate tender for Paragon Business Solution. "
+               "From the tender text, give: what is being sought, key dates, eligibility, and "
+               "what documents Paragon would need to bid. Plain and short. A DRAFT for a human."},
+    {"id": "content", "label": "Marketing content",
+     "hint": "A topic \u2014 draft a short post or message for social media.",
+     "system": "You write short marketing content for Paragon Copier Solution / Paragon Business "
+               "Solution (Ricoh copiers, rental, service; and business software). From the topic "
+               "given, draft one short, engaging post. No false claims. A DRAFT for a human."},
+]
+
+
+def _agent_keep(cid, u, kind, brief, draft, day):
+    """Har draft ka rikaard \u2014 kis ne banaya, kab, kya (kharcha ginti ke liye)."""
+    try:
+        log = _ai_load("agentlog.json", [])
+        log.insert(0, {"at": pk_now().isoformat(timespec="seconds"),
+                       "by": u.get("name"), "agent": kind,
+                       "brief": brief[:200], "len": len(draft or "")})
+        _ai_store("agentlog.json", log[:200])
+    except Exception:
+        pass
 
 
 def ai_settings():
@@ -4214,6 +4359,43 @@ def ai_route(cid, req, u):
                                                       machine.get("dept"), machine.get("place")) if x)}
 
     # --- asking: every condition checked here, whatever the screen showed ---
+    # --- the six draft agents: they write, a person sends ---
+    if act == "ai.agents":
+        # kaun se agents on hain (admin ke liye)
+        return {"ok": True, "agents": AI_AGENTS,
+                "enabled": bool(s["enabled"]),
+                "on": s.get("agents_on") or {}}
+
+    if act == "ai.agent":
+        if u.get("role") not in ("admin", "supervisor"):
+            return {"ok": False, "msg": "Drafts are for the office."}
+        if not s["enabled"]:
+            return {"ok": False, "off": True, "msg": "The AI assistant is switched off."}
+        kind = str(req.get("agent") or "")
+        spec = next((a for a in AI_AGENTS if a["id"] == kind), None)
+        if not spec:
+            return {"ok": False, "msg": "No such agent."}
+        if (s.get("agents_on") or {}).get(kind) is False:
+            return {"ok": False, "msg": "That agent is switched off."}
+        brief = str(req.get("brief") or "").strip()
+        if not brief:
+            return {"ok": False, "msg": "Give the agent something to work from."}
+        # daily limit
+        usage = _ai_load("usage.json", {})
+        day = _today()
+        if s["daily_limit_rs"] and _usage_today(usage, day)["cost"] >= s["daily_limit_rs"]:
+            _limit_note(cid, day)
+            return {"ok": False, "limit": True, "msg": "The assistant has reached today's limit."}
+        system = spec["system"]
+        try:
+            draft = ai_provider_ask(s, system, brief, web=False)
+        except Exception as e:
+            return {"ok": False, "msg": "The assistant could not answer: " + str(e)}
+        # kharcha ginti (rough)
+        text = draft.get("text") if isinstance(draft, dict) else str(draft)
+        _agent_keep(cid, u, kind, brief, text, day)
+        return {"ok": True, "agent": kind, "title": spec["label"], "draft": text}
+
     if act == "ai.ask":
         if not s["enabled"]:
             return {"ok": False, "off": True, "msg": "The AI assistant is switched off."}

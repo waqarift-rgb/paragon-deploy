@@ -155,7 +155,20 @@ textarea{resize:vertical;min-height:80px}
  display:flex;align-items:center;gap:10px}
 #mhead .h{font-size:16px;font-weight:600;flex:1}
 #mbody{padding:15px 16px;overflow:auto;flex:1}
+.pr-head{margin-bottom:14px}.pr-name{font-size:17px;font-weight:700;color:#12395E}.pr-month{font-size:13px;color:#667}
+.pr-table{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.pr-row{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line)}
+.pr-row.neg .pr-v{color:#AE1F26}
+.pr-l{font-size:14px;font-weight:600;color:#1C2E4A}.pr-s{font-size:11.5px;color:#778}
+.pr-v{font-size:14px;font-weight:600}
+.pr-row.total{background:#F5F8FB;border-bottom:0;padding:14px}
+.pr-row.total .pr-l{font-size:15px}.pr-row.total .pr-v{font-size:18px;font-weight:800}
+.pr-row.total.good .pr-v{color:#1A7538}.pr-row.total.bad .pr-v{color:#AE1F26}
+.pr-note{margin-top:12px;font-size:13px;text-align:center;color:#667}
 .pf-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.us-photo-row{display:flex;align-items:center;gap:14px}
+.us-av{width:64px;height:64px;border-radius:50%;background:#E3EAF2;color:#12395E;font-weight:700;font-size:22px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none}
+.us-av img{width:100%;height:100%;object-fit:cover}
 .pf-av{width:52px;height:52px;border-radius:50%;color:#fff;font-weight:700;font-size:19px;display:flex;align-items:center;justify-content:center;flex:none}
 .pf-name{font-size:17px;font-weight:700;color:#12395E}.pf-role{font-size:12.5px;color:#667}
 .pf-figs{display:flex;gap:9px;margin-bottom:16px}
@@ -623,13 +636,13 @@ var PERMS = {
   'complaint.assign': ['admin','supervisor','store'],
   'complaint.all':    ['admin','supervisor','store'],
   'part.approve':     ['admin','supervisor','store'],
-  'part.issue':       ['admin','store'],
+  'part.issue':       ['admin','supervisor','store'],
   'reports':          ['admin','supervisor','store'],
   'jobs':             ['admin','supervisor','store','tech'],
   'fleet':            ['admin','supervisor','store'],
-  'quotes':           ['admin','supervisor'],
+  'quotes':           ['admin'],
   'tasks':            ['admin','supervisor'],
-  'attendance.all':   ['admin'],
+  'attendance.all':   ['admin','supervisor'],
   'salary':           ['admin'],
   'money':            ['admin'],
   'collect':          ['admin','supervisor','tech'],
@@ -2573,7 +2586,7 @@ function unlockJob(id){
    ============================================================ */
 
 function reports(){
-  if(!can('reports')) return toast('Reports are for the office','bad');
+  if(ME.role !== 'admin') return toast('Reports are for the admin','bad');
   modal('Reports',
     [['Part Ledger','One part, every movement, reconciled','ledgerPick()'],
      ['Page Yield','How long a part lasted, by machine','yieldReport()'],
@@ -2775,6 +2788,7 @@ function machineShow(){
 
 var PART_KIND = {
   part:       { label:'Spare part', old:true,  back:true  },
+  toner:      { label:'Toner',      old:false, back:false },
   consumable: { label:'Consumable', old:false, back:false },
   tool:       { label:'Tool',       old:false, back:true  }
 };
@@ -2943,41 +2957,61 @@ function jobPartsValue(complaintId){
    PRINTING
    ============================================================ */
 
-function printBox(title, html){
+function printBox(title, html, meta){
   var w = window.open('', '_blank');
   if(!w) return toast('The browser blocked the print window','bad');
+  var NAVY = '#12395E', BAR = '#1565C0';
   w.document.write(
     '<!doctype html><html><head><meta charset="utf-8"><title>'+esc(title)+'</title>'+
     '<style>'+
-    'body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;'+
-      'font-size:12pt;color:#16202B;padding:18mm 15mm;line-height:1.55}'+
-    'h1{font-size:16pt;margin-bottom:2mm}'+
-    '.sub{font-size:9.5pt;color:#8794A3;margin-bottom:8mm;'+
-      'border-bottom:1px solid #D8DDE4;padding-bottom:4mm}'+
-    'table{width:100%;border-collapse:collapse;font-size:10pt;margin:4mm 0}'+
-    'th{text-align:left;padding:2mm;background:#F5F7F9;border-bottom:1px solid #D8DDE4;'+
-      'font-size:8.5pt}'+
-    'td{padding:2mm;border-bottom:1px solid #EDF0F3}'+
-    '.card{border:1px solid #D8DDE4;border-radius:2mm;padding:3mm 4mm;margin-bottom:3mm;'+
-      'page-break-inside:avoid}'+
-    '.ttl{font-weight:600}.meta{font-size:9.5pt;color:#55606D}'+
-    '.pill{font-size:8.5pt;padding:0.5mm 2mm;border:1px solid #D8DDE4;border-radius:3mm}'+
-    '.note{padding:3mm 4mm;border-left:2px solid #17794B;background:#E8F3EC;'+
-      'font-size:10pt;margin:4mm 0}'+
-    '.note.d{border-color:#C0322C;background:#FBEEED}'+
-    '.foot{margin-top:10mm;padding-top:4mm;border-top:1px solid #D8DDE4;'+
-      'font-size:8.5pt;color:#8794A3}'+
-    '@media print{body{padding:12mm}}'+
+    '@page{size:A4;margin:14mm 13mm}'+
+    '*{box-sizing:border-box}'+
+    'body{font-family:Calibri,Carlito,-apple-system,"Segoe UI",Arial,sans-serif;'+
+      'font-size:10.5pt;color:#1C2E4A;line-height:1.5;margin:0}'+
+    '.lh{display:flex;align-items:center;justify-content:space-between;'+
+      'border-bottom:2.5pt solid '+BAR+';padding-bottom:3mm;margin-bottom:0}'+
+    '.lh img{height:15mm}'+
+    '.lh .co{text-align:right}'+
+    '.lh .co .n{font-size:15pt;font-weight:700;color:'+NAVY+';letter-spacing:.2px}'+
+    '.lh .co .t{font-size:8pt;font-style:italic;color:#555}'+
+    '.lh .co .a{font-size:7.5pt;color:#555;line-height:1.5}'+
+    '.bar{background:'+NAVY+';color:#fff;padding:2.5mm 4mm;margin:0 0 1mm;'+
+      'display:flex;justify-content:space-between;align-items:center}'+
+    '.bar .ti{font-size:13pt;font-weight:700;letter-spacing:.03em}'+
+    '.bar .rt{font-size:8.5pt;opacity:.85;text-align:right}'+
+    '.metastrip{background:#EEF4F9;padding:2mm 4mm;font-size:8.5pt;color:#33465C;'+
+      'display:flex;flex-wrap:wrap;gap:1mm 6mm;margin-bottom:4mm}'+
+    '.metastrip b{color:'+NAVY+'}'+
+    'h1,h2,h3{color:'+NAVY+'}'+
+    'table{width:100%;border-collapse:collapse;font-size:9pt;margin:2mm 0 4mm}'+
+    'th{text-align:left;padding:1.8mm 2.5mm;background:'+NAVY+';color:#fff;'+
+      'font-size:8pt;font-weight:600}'+
+    'td{padding:1.8mm 2.5mm;border-bottom:1px solid #E1E7EE;vertical-align:top}'+
+    'tr:nth-child(even) td{background:#F6F9FB}'+
+    '.num{text-align:right;font-variant-numeric:tabular-nums}'+
+    '.card{border:1px solid #D8DDE4;border-radius:2mm;padding:3mm 4mm;margin-bottom:3mm;page-break-inside:avoid}'+
+    '.ttl{font-weight:600;color:'+NAVY+'}.meta{font-size:9pt;color:#55606D}'+
+    '.pill{font-size:8pt;padding:.4mm 2mm;border-radius:3mm;background:#EEF4F9;color:'+NAVY+'}'+
+    '.flag-red{color:#AE1F26;font-weight:600}.flag-amber{color:#B06E08;font-weight:600}.flag-green{color:#1A7538;font-weight:600}'+
+    '.note{padding:3mm 4mm;border-left:3px solid #1565C0;background:#EEF4F9;font-size:9.5pt;margin:3mm 0;border-radius:0 2mm 2mm 0}'+
+    '.note.d{border-color:#AE1F26;background:#FBEDEE}'+
+    '.foot{position:fixed;bottom:8mm;left:13mm;right:13mm;border-top:1px solid #BFBFBF;'+
+      'padding-top:1.5mm;text-align:center;font-size:7.5pt;color:#667}'+
     '</style></head><body>'+
-    '<h1>'+esc(DB.company.name || 'Paragon Copier Solution')+'</h1>'+
-    '<div class="sub">'+esc(title)+' \u00b7 '+esc(dmy(today()))+
-      ' \u00b7 printed by '+esc(ME.name)+'</div>'+
+    '<div class="lh"><img src="'+PCS_LOGO+'">'+
+      '<div class="co"><div class="n">PARAGON COPIER SOLUTION</div>'+
+      '<div class="t">Photocopier Sales, Rental &amp; Service Specialists</div>'+
+      '<div class="a">32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi &nbsp;|&nbsp; Ph: 0213-4536010</div>'+
+      '<div class="a">sales@paragoncopiersolution.com &nbsp;|&nbsp; www.paragoncopiersolution.com</div></div></div>'+
+    '<div class="bar"><div class="ti">'+esc(title).toUpperCase()+'</div>'+
+      '<div class="rt">'+esc(dmy(today()))+'<br>by '+esc(ME.name)+'</div></div>'+
+    (meta ? '<div class="metastrip">'+meta+'</div>' : '<div style="margin-bottom:4mm"></div>')+
     html+
-    '<div class="foot">'+esc(DB.company.name || 'Paragon Copier Solution')+
-      (DB.company.phone ? ' \u00b7 ' + esc(DB.company.phone) : '')+'</div>'+
+    '<div class="foot">32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi &nbsp;|&nbsp; '+
+      'Ph: 0213-4536010 &nbsp;|&nbsp; sales@paragoncopiersolution.com</div>'+
     '</body></html>');
   w.document.close();
-  setTimeout(function(){ w.print(); }, 350);
+  setTimeout(function(){ w.print(); }, 400);
 }
 
 /* every report screen gets a Print button that prints what is on it */
@@ -3305,12 +3339,25 @@ var BRANDS = {
              site:'' }
 };
 
-function quoteNo(brand){
-  return takeNumber('q-' + brand, BRANDS[brand].prefix, function(){
-    DB.seq.quote = DB.seq.quote || {};
-    DB.seq.quote[brand] = (DB.seq.quote[brand] || 0) + 1;
-    return DB.seq.quote[brand];
-  }, 4);
+/* Har company aur (Paragon ke liye) har type ka apna counter, apne format mein:
+     Paragon rental : PCS/RN/001
+     Paragon sales  : PCS/SL/001
+     Copier House   : CH-001
+     Copier Star    : CS-001
+   Number quotation ke type ke saath banta hai. */
+function quoteNo(brand, type){
+  DB.seq = DB.seq || {}; DB.seq.quote = DB.seq.quote || {};
+  var fmt;
+  if(brand === 'paragon'){
+    var t = (type === 'rental') ? 'RN' : 'SL';
+    fmt = function(nnn){ return 'PCS/' + t + '/' + String(nnn).padStart(3,'0'); };
+    var key = 'paragon-' + t;
+    DB.seq.quote[key] = (DB.seq.quote[key] || 0) + 1;
+    save(); return fmt(DB.seq.quote[key]);
+  }
+  var pre = brand === 'house' ? 'CH' : 'CS';
+  DB.seq.quote[brand] = (DB.seq.quote[brand] || 0) + 1;
+  save(); return pre + '-' + String(DB.seq.quote[brand]).padStart(3,'0');
 }
 
 var QT_VIEW = 'quotes';
@@ -3525,13 +3572,14 @@ function saveQuote(id){
   DB.quotes = DB.quotes || [];
   var x = id ? byId(DB.quotes, id) : null;
   var brand = $('qfBrand').value;
+  var type  = $('qfType').value;
   if(!x){
-    x = { id:uid(), no:quoteNo(brand), brand:brand, lines:[], at:now() };
+    x = { id:uid(), no:quoteNo(brand, type), brand:brand, type:type, lines:[], at:now() };
     DB.quotes.unshift(x);
   }
   x.brand  = brand;
   x.client = $('qfClient').value;
-  x.type   = $('qfType').value;
+  x.type   = type;
   x.tax    = !!$('qfTax').value;
   if(!id) x.taxPct = taxFor(x.type);   /* frozen at creation */
   x.date   = $('qfDate').value || today();
@@ -8342,9 +8390,12 @@ function zipStore(files){
 }
 
 function saveBlob(name, blob){
-  if(window.Android && typeof Android.saveBlob === 'function'){
+  if(window.Android && typeof Android.saveBinary === 'function'){
     var rd = new FileReader();
-    rd.onload = function(){ Android.saveBlob(name, String(rd.result).split(',')[1] || ''); };
+    rd.onload = function(){
+      var b64 = String(rd.result).split(',')[1] || '';
+      Android.saveBinary(name, b64, blob.type || 'application/octet-stream');
+    };
     rd.readAsDataURL(blob); return;
   }
   var a = document.createElement('a');
@@ -8356,6 +8407,10 @@ function saveBlob(name, blob){
 
 /* one way to hand a person a file, in a browser or inside the APK */
 function saveText(name, text, type){
+  if(window.Android && typeof Android.saveFileTyped === 'function'){
+    Android.saveFileTyped(name, text, type || 'text/plain');   /* sahi type se save */
+    return;
+  }
   if(window.Android && typeof Android.saveFile === 'function'){
     Android.saveFile(name, text);
     return;
@@ -8571,7 +8626,7 @@ function perfDraw(u, s){
   var rate = s.jobs ? Math.round(s.done / s.jobs * 100) : 0;
   var body =
     '<div class="pf-head">'+
-      '<div class="pf-av" style="background:' + avatarColour(u.name) + '">' + initials(u.name) + '</div>'+
+      '<div class="pf-av" style="background:' + avatarColour(u.name) + '">' + (u.photo ? '<img src="'+u.photo+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">' : initials(u.name)) + '</div>'+
       '<div><div class="pf-name">' + esc(u.name) + '</div>'+
       '<div class="pf-role">' + esc((ROLES[u.role]||{}).label || '') + ' \u00b7 ' + s.month + '</div></div>'+
     '</div>'+
@@ -8653,6 +8708,411 @@ function soundWire(){
       tapTick('key'); tapBuzz(5);
     }
   }, true);
+}
+
+/* ============================================================
+   CLIENT PROFIT  (admin only)
+   ============================================================ */
+
+function clientProfitPick(){
+  if(ME.role !== 'admin') return toast('For the admin','bad');
+  var month = today().slice(0, 7);
+  modal('Client profit',
+    '<div class="field"><label>Client</label><select id="cpfClient">'+
+      DB.clients.map(function(c){ return '<option value="'+c.id+'">'+esc(c.name)+'</option>'; }).join('')+
+    '</select></div>'+
+    '<div class="field"><label>Month</label><input id="cpfMonth" type="month" value="'+month+'"></div>'+
+    '<div class="help">Us mahine ka hisaab: jo mila, us mein se visits, parts, toner aur '+
+    'depreciation nikaal kar \\u2014 profit.</div>',
+    [{t:'Close',cls:'ghost',f:'closeModal()'},{t:'Show',cls:'',f:'clientProfitRun()'}]);
+}
+
+function clientProfitRun(){
+  var clientId = $('cpfClient').value;
+  var month = $('cpfMonth').value || today().slice(0,7);
+  /* received us mahine mein \\u2014 server se (payments confirmed) */
+  mCall({ action:'received', client:clientId, month:month }, function(r){
+    var received = (r && r.ok) ? (r.received || 0) : 0;
+    clientProfitDraw(clientId, month, received);
+  });
+}
+
+function clientProfitDraw(clientId, month, received){
+  var c = byId(DB.clients, clientId); if(!c) return;
+  var visitRate = costRate('visitCharge');
+  var defDep = costRate('depMonths');
+
+  /* us client ke machines */
+  var machines = DB.machines.filter(function(m){ return m.client === clientId && !m.cancelled; });
+  var machineIds = machines.map(function(m){ return m.id; });
+
+  /* VISITS \\u2014 us mahine mein us client par resolved complaints (har ek = ek visit) */
+  var visits = DB.complaints.filter(function(x){
+    return x.client === clientId && x.status === 'resolved' &&
+           String(x.resolved || '').slice(0,7) === month; }).length;
+  var visitCost = visits * visitRate;
+
+  /* PARTS + TONER \\u2014 us mahine mein us client ke machines par lage (installed) */
+  var partsCost = 0, tonerCost = 0;
+  DB.parts.forEach(function(p){
+    var inst = q(p, 'installed');
+    if(inst <= 0) return;
+    if(String(p.at || '').slice(0,7) !== month) return;
+    /* is part ka complaint us client ka hai? */
+    var job = p.complaint ? byId(DB.complaints, p.complaint) : null;
+    if(!job || job.client !== clientId) return;
+    var st = p.stock ? byId(DB.stock, p.stock) : null;
+    var each = st ? (parseFloat(st.cost) || 0) : 0;
+    var kind = st ? (st.kind || 'part') : 'part';
+    if(kind === 'toner') tonerCost += inst * each;
+    else partsCost += inst * each;
+  });
+
+  /* DEPRECIATION \\u2014 har rental machine ka ek mahine ka hissa (cost / months) */
+  var dep = 0;
+  machines.forEach(function(m){
+    if(m.mtype !== 'rental') return;
+    var cost = parseFloat(m.cost) || 0;
+    var months = parseFloat(m.depMonths) || defDep || 12;
+    if(cost > 0 && months > 0) dep += cost / months;
+  });
+  dep = Math.round(dep);
+
+  var profit = Math.round(received - visitCost - partsCost - tonerCost - dep);
+
+  function row(label, value, sub, neg){
+    return '<div class="pr-row'+(neg?' neg':'')+'">'+
+      '<div><div class="pr-l">'+label+'</div>'+(sub?'<div class="pr-s">'+sub+'</div>':'')+'</div>'+
+      '<div class="pr-v">'+(neg&&value?'\\u2212 ':'')+rs(value)+'</div></div>';
+  }
+
+  var body =
+    '<div class="pr-head"><div class="pr-name">'+esc(c.name)+'</div>'+
+      '<div class="pr-month">'+monthName(month)+'</div></div>'+
+    '<div class="pr-table">'+
+      row('Received', received, 'Payments confirmed this month', false)+
+      row('Tech visits', visitCost, visits+' visit(s) \\u00d7 '+rs(visitRate), true)+
+      row('Parts', partsCost, 'Parts fitted this month, at cost', true)+
+      row('Toner', tonerCost, 'Toner used this month, at cost', true)+
+      row('Depreciation', dep, machines.filter(function(m){return m.mtype==='rental';}).length+' rental machine(s)', true)+
+      '<div class="pr-row total '+(profit>=0?'good':'bad')+'">'+
+        '<div class="pr-l">Profit</div>'+
+        '<div class="pr-v">'+rs(profit)+'</div></div>'+
+    '</div>'+
+    '<div class="pr-note">'+(profit>=0
+      ? '\\u2705 Is client par is mahine faida hua.'
+      : '\\u26A0\\uFE0F Is client par is mahine nuqsan \\u2014 rent ya service dekh lein.')+'</div>';
+
+  modal('Profit \\u2014 '+esc(c.name), body,
+    [{t:'Back',cls:'ghost',f:'clientProfitPick()'},{t:'Close',cls:'',f:'closeModal()'}]);
+}
+
+function monthName(m){
+  var mo = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var p = String(m).split('-'); return (mo[parseInt(p[1],10)-1]||'') + ' ' + p[0];
+}
+
+/* ============================================================
+   SERVICE ROUNDS  (planned monthly visits)
+   ============================================================ */
+
+function roundsBox(month){
+  if(!can('reports') && ME.role !== 'admin' && ME.role !== 'supervisor')
+    return toast('Service rounds are for the office','bad');
+  month = month || today().slice(0, 7);
+
+  /* har rental machine \u2014 is mahine visit hua ya nahi */
+  var machines = DB.machines.filter(function(m){
+    return !m.cancelled && m.mtype === 'rental'; });
+
+  var done = [], due = [];
+  machines.forEach(function(m){
+    var visited = roundVisited(m.id, month);
+    (visited ? done : due).push({ m: m, visit: visited });
+  });
+
+  var total = machines.length;
+  var pct = total ? Math.round(done.length / total * 100) : 0;
+  var barColour = pct >= 90 ? '#1A7538' : pct >= 60 ? '#C8860B' : '#AE1F26';
+
+  var body =
+    '<div class="rd-top">'+
+      '<div class="rd-month"><button class="btn ghost sm" onclick="roundsBox(\''+monthShift(month,-1)+'\')">\u2039</button>'+
+        '<b>'+monthName(month)+'</b>'+
+        '<button class="btn ghost sm" onclick="roundsBox(\''+monthShift(month,1)+'\')">\u203A</button></div>'+
+      '<div class="rd-cov"><div class="rd-cov-bar"><div style="width:'+pct+'%;background:'+barColour+'"></div></div>'+
+        '<div class="rd-cov-n">'+done.length+' of '+total+' covered \u00b7 '+pct+'%</div></div>'+
+    '</div>';
+
+  if(!total){
+    body += '<div class="empty">No rental machines yet. Mark a machine as '+
+      '\u201cRental\u201d (with a monthly rent) to plan its visits.</div>';
+  } else {
+    if(due.length){
+      body += '<div class="rd-sec rd-due">\u26A0\uFE0F Still due this month ('+due.length+')</div>';
+      body += due.map(function(x){ return roundRow(x.m, null); }).join('');
+    }
+    if(done.length){
+      body += '<div class="rd-sec rd-done">\u2705 Covered ('+done.length+')</div>';
+      body += done.map(function(x){ return roundRow(x.m, x.visit); }).join('');
+    }
+  }
+
+  modal('Service rounds', body, [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+}
+
+/* is machine par is mahine koi visit (ya resolved complaint) hua? */
+function roundVisited(machineId, month){
+  var hit = null;
+  (DB.visits || []).forEach(function(v){
+    if(v.machine === machineId && String(v.at || '').slice(0,7) === month){
+      if(!hit || String(v.at) > String(hit.at)) hit = v;
+    }
+  });
+  DB.complaints.forEach(function(c){
+    if(c.machine === machineId && c.status === 'resolved' &&
+       String(c.resolved || '').slice(0,7) === month){
+      var at = c.resolved;
+      if(!hit || String(at) > String(hit.at)) hit = { at: at, counter: c.counter, job: true };
+    }
+  });
+  return hit;
+}
+
+function roundRow(m, visit){
+  var client = nameOf(DB.clients, m.client);
+  return '<div class="rd-row" onclick="'+(visit
+      ? 'closeModal()'
+      : 'closeModal();visitForm(\''+m.id+'\')')+'">'+
+    '<div class="grow"><div class="rd-m">'+esc(machineLabel(m))+'</div>'+
+      '<div class="rd-c">'+esc(client)+'</div></div>'+
+    (visit
+      ? '<div class="rd-tick">\u2713<div class="rd-when">'+(visit.counter ? Number(visit.counter).toLocaleString()+' \u00b7 ' : '')+dmy(String(visit.at).slice(0,10))+'</div></div>'
+      : '<div class="rd-go">Log visit \u203A</div>')+
+  '</div>';
+}
+
+function monthShift(m, by){
+  var p = String(m).split('-'), y = +p[0], mo = +p[1] + by;
+  while(mo < 1){ mo += 12; y--; } while(mo > 12){ mo -= 12; y++; }
+  return y + '-' + ('0'+mo).slice(-2);
+}
+
+/* ============================================================
+   RENTAL INVOICING  (admin only)
+   ============================================================ */
+
+function rentalRunPick(){
+  if(ME.role !== 'admin') return toast('For the admin','bad');
+  var month = today().slice(0, 7);
+  modal('Rental invoices',
+    '<div class="field"><label>Month</label><input id="rrMonth" type="month" value="'+month+'"></div>'+
+    '<div class="help">Is mahine ke rental machines ke bills \u2014 rent aur (per-copy wale par) '+
+    'rounds ki counter reading se. Har figure aap dekh kar tasdeeq kar sakte hain.</div>',
+    [{t:'Close',cls:'ghost',f:'closeModal()'},{t:'Work them out',cls:'',f:'rentalRun()'}]);
+}
+
+function rentalRun(){
+  var month = $('rrMonth').value || today().slice(0,7);
+  var machines = DB.machines.filter(function(m){
+    return !m.cancelled && m.mtype === 'rental' && (parseFloat(m.rent)>0 || parseFloat(m.copyRate)>0); });
+
+  if(!machines.length){
+    return modal('Rental invoices', '<div class="empty">No rental machines with a rent or per-copy rate set. '+
+      'Set them under a machine (admin).</div>', [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+  }
+
+  var lines = machines.map(function(m){
+    return rentalLine(m, month);
+  });
+  var total = lines.reduce(function(a,l){ return a + l.amount; }, 0);
+  var toMake = lines.filter(function(l){ return !l.already; });
+
+  var body = '<div class="rr-month">'+monthName(month)+' \u00b7 '+machines.length+' machine(s)</div>'+
+    lines.map(function(l){
+      return '<div class="rr-row'+(l.already?' done':'')+(l.warn?' warn':'')+'">'+
+        '<div class="grow"><div class="rr-m">'+esc(l.label)+'</div>'+
+          '<div class="rr-c">'+esc(l.client)+'</div>'+
+          '<div class="rr-how">'+l.how+'</div></div>'+
+        '<div class="rr-amt">'+rs(l.amount)+
+          (l.already?'<div class="rr-done">\u2713 made</div>':'')+'</div>'+
+      '</div>';
+    }).join('')+
+    '<div class="rr-total"><span>Total this month</span><b>'+rs(total)+'</b></div>'+
+    (toMake.length
+      ? '<div class="help" style="margin-top:8px">'+toMake.length+' invoice(s) not yet made.</div>'
+      : '<div class="help" style="margin-top:8px">All made for this month.</div>');
+
+  modal('Rental \u2014 '+monthName(month), body,
+    [{t:'Back',cls:'ghost',f:'rentalRunPick()'}].concat(
+      toMake.length ? [{t:'Make '+toMake.length+' invoice(s)',cls:'',f:'rentalMake(\''+month+'\')'}] : []));
+}
+
+/* ek machine ka is mahine ka bill \u2014 khula hisaab */
+function rentalLine(m, month){
+  var client = nameOf(DB.clients, m.client);
+  var label = machineLabel(m);
+  var rent = parseFloat(m.rent) || 0;
+  var copyRate = parseFloat(m.copyRate) || 0;
+  var minCharge = parseFloat(m.minCharge) || 0;
+  var already = rentalAlready(m.id, month);
+
+  if(copyRate > 0){
+    /* per-copy: is mahine ki reading \u2212 pichhle mahine ki */
+    var now = counterInMonth(m.id, month);
+    var prev = counterBefore(m.id, month);
+    var copies = (now != null && prev != null) ? Math.max(0, now - prev) : null;
+    var amount = copies != null ? Math.max(copies * copyRate, minCharge) : minCharge;
+    var how = copies != null
+      ? copies.toLocaleString()+' copies \u00d7 '+rs(copyRate)+(minCharge && copies*copyRate<minCharge?' (min '+rs(minCharge)+')':'')
+      : 'No reading this month \u2014 minimum '+rs(minCharge);
+    return { id:m.id, label:label, client:client, amount:Math.round(amount), how:how,
+             already:already, warn: copies == null };
+  }
+  /* fixed monthly rent */
+  return { id:m.id, label:label, client:client, amount:Math.round(rent),
+           how:'Monthly rent', already:already, warn:false };
+}
+
+/* is machine par is mahine ka aakhri counter */
+function counterInMonth(machineId, month){
+  var best = null;
+  (DB.visits || []).forEach(function(v){
+    if(v.machine === machineId && String(v.at||'').slice(0,7) === month && v.counter != null)
+      if(best == null || v.counter > best) best = v.counter;
+  });
+  DB.complaints.forEach(function(c){
+    if(c.machine === machineId && c.counter && String(c.resolved||'').slice(0,7) === month)
+      if(best == null || c.counter > best) best = c.counter;
+  });
+  return best;
+}
+
+/* is machine ka is mahine se pehle ka aakhri counter */
+function counterBefore(machineId, month){
+  var best = null;
+  var cut = month + '-01';
+  (DB.visits || []).forEach(function(v){
+    if(v.machine === machineId && String(v.at||'').slice(0,10) < cut && v.counter != null)
+      if(best == null || v.counter > best) best = v.counter;
+  });
+  DB.complaints.forEach(function(c){
+    if(c.machine === machineId && c.counter && String(c.resolved||'').slice(0,10) < cut)
+      if(best == null || c.counter > best) best = c.counter;
+  });
+  return best;
+}
+
+function rentalAlready(machineId, month){
+  return (DB.rentals || []).some(function(r){
+    return r.machine === machineId && r.month === month; });
+}
+
+function rentalMake(month){
+  var machines = DB.machines.filter(function(m){
+    return !m.cancelled && m.mtype === 'rental' && (parseFloat(m.rent)>0 || parseFloat(m.copyRate)>0); });
+  DB.rentals = DB.rentals || [];
+  var made = 0;
+  machines.forEach(function(m){
+    if(rentalAlready(m.id, month)) return;
+    var l = rentalLine(m, month);
+    if(!l.amount) return;
+    DB.rentals.push({ id:uid(), machine:m.id, client:m.client, month:month,
+      amount:l.amount, how:l.how, at:now(), by:ME.id });
+    made++;
+  });
+  logIt('money', 'Made '+made+' rental invoice(s)', monthName(month));
+  save(); if(sharingOn()) syncSoon();
+  toast(made+' rental invoice(s) made','good');
+  rentalRun();
+}
+
+/* ============================================================
+   AI DRAFTING AGENTS  (office: admin / supervisor)
+   ============================================================ */
+
+var _agentDraft = '';
+
+function aiAgentsBox(){
+  if(ME.role !== 'admin' && ME.role !== 'supervisor')
+    return toast('Drafts are for the office','bad');
+  hrCall({ action:'ai.agents' }).then(function(d){
+    if(!d || !d.ok) return toast((d&&d.msg)||'Could not load','bad');
+    if(!d.enabled){
+      return modal('AI assistants',
+        '<div class="note w"><b>The AI assistant is switched off.</b> '+
+        'Turn it on under More \\u2192 AI Technician Assistant (set a provider and API key first).</div>',
+        [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+    }
+    var on = d.on || {};
+    modal('AI assistants',
+      '<div class="help" style="margin-bottom:10px">Har assistant ek <b>draft</b> banata hai \\u2014 '+
+      'aap parh kar, theek kar ke, khud bhejte hain. Kuch khud nahi jata.</div>'+
+      d.agents.filter(function(a){ return on[a.id] !== false; }).map(function(a){
+        return '<div class="card tap" onclick="aiAgentPick(&quot;'+a.id+'&quot;,&quot;'+esc(a.label).replace(/"/g,'')+'&quot;,&quot;'+esc(a.hint).replace(/"/g,'')+'&quot;)" '+
+          'style="padding:12px 13px;margin-bottom:8px">'+
+          '<div class="ttl">'+agentIcon(a.id)+' '+esc(a.label)+'</div>'+
+          '<div class="meta">'+esc(a.hint)+'</div></div>';
+      }).join(''),
+      [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+  }).catch(function(){ toast('Could not load','bad'); });
+}
+
+function agentIcon(id){
+  return { enquiry:'\\u{1F4E9}', quotation:'\\u{1F4C4}', followup:'\\u{1F514}',
+           consumable:'\\u{1F5A8}\\uFE0F', tender:'\\u{1F4CB}', content:'\\u{1F4E3}' }[id] || '\\u{1F916}';
+}
+
+function aiAgentPick(id, label, hint){
+  _agentDraft = '';
+  modal(label,
+    '<div class="help" style="margin-bottom:8px">'+esc(hint)+'</div>'+
+    '<div class="field"><label>Details for the assistant</label>'+
+      '<textarea id="agBrief" rows="5" placeholder="Jo maloomat hai wo yahan likhein\\u2026"></textarea></div>'+
+    '<div id="agOut"></div>',
+    [{t:'Back',cls:'ghost',f:'aiAgentsBox()'},{t:'Write draft',cls:'',f:'aiAgentRun(&quot;'+id+'&quot;,&quot;'+esc(label).replace(/&/g,'').replace(/"/g,'')+'&quot;)'}]);
+}
+
+function aiAgentRun(id, label){
+  var brief = $('agBrief').value.trim();
+  if(!brief) return toast('Assistant ko kuch maloomat dein','bad');
+  var out = $('agOut');
+  if(out) out.innerHTML = '<div class="note i">Draft ban raha hai\\u2026</div>';
+  hrCall({ action:'ai.agent', agent:id, brief:brief }).then(function(d){
+    if(!d || !d.ok){
+      if(out) out.innerHTML = '<div class="note d">'+esc((d&&d.msg)||'Could not write it')+'</div>';
+      return;
+    }
+    _agentDraft = d.draft || '';
+    if(out) out.innerHTML =
+      '<div class="ag-draft"><div class="ag-dh">Draft \\u2014 parh kar bhejein</div>'+
+      '<div class="ag-dt">'+esc(_agentDraft).replace(/\\n/g,'<br>')+'</div></div>'+
+      '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">'+
+        '<button class="btn ghost sm" onclick="aiAgentCopy()">\\u{1F4CB} Copy</button>'+
+        '<button class="btn ghost sm" onclick="aiAgentWhatsApp()">\\u{1F4AC} WhatsApp</button>'+
+        '<button class="btn ghost sm" onclick="aiAgentRun(&quot;'+id+'&quot;,&quot;'+esc(label).replace(/"/g,'')+'&quot;)">\\u21BB Again</button>'+
+      '</div>';
+  }).catch(function(){
+    if(out) out.innerHTML = '<div class="note d">Could not reach the assistant.</div>';
+  });
+}
+
+function aiAgentCopy(){
+  if(!_agentDraft) return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(_agentDraft).then(function(){ toast('Copied','good'); },
+      function(){ aiAgentCopyFallback(); });
+  } else aiAgentCopyFallback();
+}
+function aiAgentCopyFallback(){
+  var t = document.createElement('textarea'); t.value = _agentDraft;
+  document.body.appendChild(t); t.select();
+  try { document.execCommand('copy'); toast('Copied','good'); } catch(e){ toast('Copy nahi hua','bad'); }
+  t.remove();
+}
+function aiAgentWhatsApp(){
+  if(!_agentDraft) return;
+  window.location.href = 'https://wa.me/?text=' + encodeURIComponent(_agentDraft);
 }
 
 /* ============================================================
@@ -9976,7 +10436,9 @@ function moneyBox(){
       [['\u{1F4CA}','Receivables','Sales and rental, by client', "recvBox('sales')"],
        ['\u{1F9FE}','Invoices','Made from accepted quotations','invBox()'],
        ['\u{1F4B3}','Payments','Confirm, set against invoices, bounced','paysBox()'],
-       ['\u{1F4E5}','Import rental invoices','This month\u2019s Excel from the rental software','rentBox()'],
+       ['\u{1F3E2}','Rental invoices','Made from rent and counter readings \u2014 monthly','rentalRunPick()'],
+       ['\u{1F4E5}','Import rental invoices','Old way: this month\u2019s Excel from the rental software','rentBox()'],
+       ['\u{1F4C8}','Client profit','What each client earns \u2014 after visits, parts, toner','clientProfitPick()'],
        ['\u2699','Settings','Invoice numbers, bank details, warranty wording','monSettings()']].map(function(x){
         return '<div class="card tap" style="padding:10px 12px;margin-bottom:7px" onclick="' + x[3] + '">'+
           '<div class="row"><span style="font-size:19px;margin-right:10px">' + x[0] + '</span>'+
@@ -10466,6 +10928,13 @@ function rentCommit(){
 
 /* ---------- settings ---------- */
 
+/* Costing ke rate \u2014 admin badal sakta hai. Client profit inhi se banta hai. */
+function costRate(key){
+  DB.costing = DB.costing || {};
+  var d = { visitCharge: 800, depMonths: 12 };
+  return DB.costing[key] != null ? DB.costing[key] : d[key];
+}
+
 function monSettings(){
   mCall({ action:'settings' }, function(r){
     var s = r.settings;
@@ -10483,6 +10952,17 @@ function monSettings(){
           '<div class="field"><label>Phone</label><input id="ms' + b + 'h" value="' + esc(x.phone||'') + '"></div>'+
           '<div class="field"><label>Bank details (printed on the invoice)</label><textarea id="ms' + b + 'b">' + esc(x.bank||'') + '</textarea></div></div>';
       }).join('')+
+      '<div class="card" style="padding:10px 12px;margin-bottom:8px;border-left:3px solid var(--blue)">'+
+        '<div class="ttl">Costing &amp; profit</div>'+
+        '<div class="help" style="margin-bottom:8px">Client profit inhi se banta hai. Rate badal dein to naye hisaab par lag jayega.</div>'+
+        '<div class="two">'+
+          '<div class="field"><label>Tech visit charge (Rs)</label>'+
+            '<input id="msVisit" type="number" value="' + costRate('visitCharge') + '">'+
+            '<div class="help">Har complaint visit ka kharcha.</div></div>'+
+          '<div class="field"><label>Depreciation (months)</label>'+
+            '<input id="msDep" type="number" value="' + costRate('depMonths') + '">'+
+            '<div class="help">Machine value kitne mahine mein ghate (default).</div></div>'+
+        '</div></div>'+
       '<div class="field"><label>Warranty wording \u2014 what is covered, what is not, how to claim</label>'+
         '<textarea id="msWarr" style="min-height:120px">' + esc(s.warranty||'') + '</textarea></div>',
       [{t:'Back',cls:'ghost',f:'moneyBox()'},{t:'Save',cls:'',f:'monSettingsSave()'}]);
@@ -10495,6 +10975,10 @@ function monSettingsSave(){
                   ntn:$('ms' + b + 't').value, strn:$('ms' + b + 's').value, phone:$('ms' + b + 'h').value,
                   bank:$('ms' + b + 'b').value };
   });
+  DB.costing = DB.costing || {};
+  if($('msVisit')) DB.costing.visitCharge = parseFloat($('msVisit').value) || 800;
+  if($('msDep')) DB.costing.depMonths = parseFloat($('msDep').value) || 12;
+  save(); if(sharingOn()) syncSoon();
   mCall({ action:'settings', set:true, brands:brands, warranty:$('msWarr').value }, function(){
     toast('Saved','good'); moneyBox();
   });
@@ -13174,7 +13658,7 @@ function chatNewBox(){
   var office = ME.role === 'admin' || ME.role === 'supervisor';
   modal('New chat',
     '<label style="margin-bottom:6px">Message someone</label>' + _chat.people.map(function(p){
-      return '<div class="ch-conv" onclick="chatDm(\'' + p.id + '\')"><div class="ch-av" style="background:' + avatarColour(p.name) + '">' + initials(p.name) + '</div>'+
+      return '<div class="ch-conv" onclick="chatDm(\'' + p.id + '\')"><div class="ch-av" style="background:' + avatarColour(p.name) + '">' + (userPhoto(p.id) ? '<img src="'+userPhoto(p.id)+'">' : initials(p.name)) + '</div>'+
         '<div class="grow"><div class="ch-name">' + esc(p.name) + '</div><div class="ch-last">' + esc((ROLES[p.role] || {}).label || '') + '</div></div></div>'; }).join('')+
     (office ? '<div class="sep"></div><label style="margin-bottom:6px">Or start a group</label>'+
       '<div class="field"><input id="cgName" placeholder="Group name \u2014 e.g. Technicians"></div>' + _chat.people.map(function(p){
@@ -13202,10 +13686,30 @@ function chatOpen(id){
   var w = chatWrap();
   var c = _chat.list.filter(function(x){ return x.id === id; })[0] || {};
   w.innerHTML = '<div class="ch-head"><button class="ch-back" onclick="_chat.open=null;chatDrawList();chatRefreshBadge()">\u2039</button>'+
-    '<div class="ch-av sm" style="background:' + (c.kind === 'group' ? '#12395E' : avatarColour(c.title)) + '">' + (c.kind === 'group' ? '\u{1F465}' : initials(c.title)) + '</div>'+
-    '<div class="grow" style="min-width:0"><div class="ch-title" id="chTitle">' + esc(c.title || '') + '</div><div class="ch-sub" id="chSub"></div></div></div>'+
+    '<div class="ch-av sm" style="background:' + (c.kind === 'group' ? '#12395E' : avatarColour(c.title)) + '">' + (c.kind === 'group' ? '\u{1F465}' : ((c.other && userPhoto(c.other.id)) ? '<img src="'+userPhoto(c.other.id)+'">' : initials(c.title))) + '</div>'+
+    '<div class="grow" style="min-width:0"><div class="ch-title" id="chTitle">' + esc(c.title || '') + '</div><div class="ch-sub" id="chSub"></div></div>'+
+    (c.kind !== 'group' ? '<button class="ch-call" onclick="chatCall(\''+id+'\')" title="Call">\u{1F4DE}</button>' : '')+
+    '</div>'+
     '<div class="ch-msgs" id="chMsgs"><div class="empty">Loading\u2026</div></div>' + chatComposer();
   chatFetch(true);
+}
+
+/* WhatsApp jaisa call: 1-to-1 chat se us bande ko call. Us ka phone number
+   ho to phone ka dialer khul jata hai. (Poora in-app voice call baad mein.) */
+function chatCall(convId){
+  var c = _chat.list.filter(function(x){ return x.id === convId; })[0] || {};
+  /* doosre bande ka user record dhoondo (conversation ke members se) */
+  var other = null;
+  (_chat.members || []).forEach(function(m){ if(m.id !== ME.id) other = m; });
+  if(!other && c.other) other = c.other;
+  var u = other ? byId(DB.users, other.id) : null;
+  var phone = (u && u.phone) ? u.phone : (other && other.phone);
+  if(!phone){
+    return toast('Is ka phone number nahi hai \u2014 admin Users mein daal sakta hai','bad');
+  }
+  /* dialer kholo */
+  var clean = String(phone).replace(/[^0-9+]/g, '');
+  window.location.href = 'tel:' + clean;
 }
 
 function chatFetch(first){
@@ -13433,11 +13937,16 @@ function chatSendOrRec(){
 }
 function chatAttach(){
   modal('Send', '<div class="ch-attach">'+
-    '<div onclick="closeModal();chatAttachPhoto()"><span style="background:#BF59CF">\u{1F5BC}\uFE0F</span>Photo</div>'+
+    '<div onclick="closeModal();chatAttachCamera()"><span style="background:#1A7538">\u{1F4F7}</span>Camera</div>'+
+    '<div onclick="closeModal();chatAttachPhoto()"><span style="background:#BF59CF">\u{1F5BC}\uFE0F</span>Gallery</div>'+
     '<div onclick="closeModal();chatAttachFile()"><span style="background:#5F66CD">\u{1F4C4}</span>Document</div>'+
     '<div onclick="closeModal();chatSendOrRecForce()"><span style="background:#FF8A00">\u{1F3A4}</span>Voice note</div></div>'+
-    '<div class="help" style="text-align:center;margin-top:8px">PDF, Word, Excel and other documents up to 5 MB.</div>',
+    '<div class="help" style="text-align:center;margin-top:8px">Camera se seedha photo, ya gallery/document (5 MB tak).</div>',
     [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+}
+function chatAttachCamera(){
+  /* seedha camera \u2014 abhi ki photo khaanch kar bhejo (WhatsApp jaisa) */
+  pickPhoto(function(src){ chatSend({ photo:src, text:$('chText').value.trim() }); }, { gallery:false });
 }
 function chatAttachPhoto(){
   pickPhoto(function(src){ chatSend({ photo:src, text:$('chText').value.trim() }); }, { gallery:true });
@@ -13566,12 +14075,15 @@ function chatCss(){
     '#chatWrap.on{display:flex}',
     '@media(min-width:900px){#chatWrap{left:auto;width:460px;box-shadow:-10px 0 30px rgba(0,0,0,.15)}}',
     '.ch-head{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#12395E;color:#fff;flex:none;padding-top:max(10px,env(safe-area-inset-top))}',
+    '.ch-call{background:rgba(255,255,255,.15);border:0;color:#fff;width:38px;height:38px;border-radius:50%;font-size:18px;cursor:pointer;flex:none}',
+    '.ch-call:active{background:rgba(255,255,255,.3)}',
     '.ch-back{background:none;border:0;color:#fff;font-size:28px;line-height:1;padding:0 6px;cursor:pointer}',
     '.ch-title{font-size:16.5px;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.ch-sub{font-size:11.5px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.ch-new{background:rgba(255,255,255,.16);border:0;color:#fff;border-radius:16px;padding:6px 12px;font-weight:700;cursor:pointer}',
     '.ch-list{flex:1;overflow:auto;background:#fff}',
     '.ch-conv{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid #F0F2F4;cursor:pointer}.ch-conv:active{background:#F5F7F9}',
+    '.ch-av img{width:100%;height:100%;object-fit:cover;border-radius:50%}',
     '.ch-av{width:46px;height:46px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex:none}',
     '.ch-av.sm{width:36px;height:36px;font-size:13px}',
     '.ch-name{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -13794,9 +14306,9 @@ function drawMore(){
     rows.push(['\u{1F69A}','Purchases', (DB.buys||[]).length + ' recorded', "listBuys()"]);
     rows.push(['\u{267B}','Scrap', 'Old parts held, and selling them', "scrapList()"]);
   }
-  if(can('reports'))
+  if(ME.role === 'admin')
     rows.push(['\u{1F4CA}','Reports', 'Ledger, page yield, machines, technicians', "reports()"]);
-  if(can('reports'))
+  if(ME.role === 'admin' || ME.role === 'supervisor')
     rows.push(['\u{1F4CB}','What happened', 'Every change, with a name and a time', "listLog()"]);
   rows.push(['\u{1F517}','Paragon server', !DB.share.on ? 'Off \u2014 this device only'
               : shareLocked() ? 'Connected \u00b7 locked \u{1F512}'
@@ -13825,6 +14337,8 @@ function drawMore(){
   if(sharingOn() && ME.role === 'admin')
     rows.push(['\u{1F916}','AI Technician Assistant', aiStatus().enabled ? 'ON \u00b7 provider, limits, usage'
                : 'OFF \u00b7 choose a provider and switch it on when ready', "aiSettingsBox()"]);
+  if(sharingOn() && (ME.role === 'admin' || ME.role === 'supervisor') && aiStatus().enabled)
+    rows.push(['\u{2728}','AI assistants', 'Draft an enquiry reply, quotation, follow-up and more', "aiAgentsBox()"]);
   if(can('settings'))
     rows.push(['\u{1F3A8}','Dashboard colours','When an item turns amber, then red', "agesBox()"]);
   if(ME.role === 'admin' || ME.role === 'supervisor')
@@ -13892,6 +14406,75 @@ function listClients(){
      {t:'+ Add',cls:'',f:'editClient(null)'}]);
 }
 
+/* Ek client ke kai contact persons \u2014 naam, kaam, phone/WhatsApp, email.
+   Ek ko "main" (primary) bana sakte hain jo pehle dikhta hai. */
+function contacts(clientId){
+  var c = byId(DB.clients, clientId); if(!c) return;
+  c.people = c.people || [];
+  var rows = c.people.length ? c.people.map(function(p, i){
+    return '<div class="card" style="padding:10px 12px">'+
+      '<div class="row" style="align-items:flex-start">'+
+        '<div class="grow">'+
+          '<div class="ttl">'+esc(p.name)+(p.primary?' <span class="tag g" style="font-size:8pt">Main</span>':'')+'</div>'+
+          (p.role?'<div class="meta">'+esc(p.role)+'</div>':'')+
+          (p.phone?'<div class="meta">\u{1F4F1} '+esc(p.phone)+'</div>':'')+
+          (p.email?'<div class="meta">\u2709 '+esc(p.email)+'</div>':'')+
+        '</div>'+
+        '<div style="display:flex;flex-direction:column;gap:4px">'+
+          (p.primary?'':'<button class="btn ghost sm" onclick="contactPrimary(\''+clientId+'\','+i+')">Make main</button>')+
+          '<button class="btn ghost sm" onclick="contactEdit(\''+clientId+'\','+i+')">Edit</button>'+
+          '<button class="btn ghost sm" onclick="contactDelete(\''+clientId+'\','+i+')">Remove</button>'+
+        '</div>'+
+      '</div></div>';
+  }).join('') : '<div class="empty">No contacts yet.</div>';
+  modal('Contacts \u2014 '+esc(c.name),
+    rows,
+    [{t:'Back',cls:'ghost',f:'listClients()'},{t:'+ Add contact',cls:'',f:'contactEdit(\''+clientId+'\',-1)'}]);
+}
+
+function contactEdit(clientId, idx){
+  var c = byId(DB.clients, clientId); if(!c) return;
+  c.people = c.people || [];
+  var p = idx >= 0 ? c.people[idx] : { name:'', role:'', phone:'', email:'', primary:false };
+  modal(idx>=0 ? 'Edit contact' : 'Add contact',
+    '<div class="field"><label>Name</label><input id="cpName" value="'+esc(p.name||'')+'" placeholder="Mr. Asif"></div>'+
+    '<div class="field"><label>Role / designation</label><input id="cpRole" value="'+esc(p.role||'')+'" placeholder="Accounts Manager"></div>'+
+    '<div class="field"><label>Phone / WhatsApp</label><input id="cpPhone" type="tel" value="'+esc(p.phone||'')+'" placeholder="0300 1234567"></div>'+
+    '<div class="field"><label>Email</label><input id="cpEmail" type="email" autocapitalize="off" value="'+esc(p.email||'')+'" placeholder="asif@client.com"></div>'+
+    '<label class="chk"><input type="checkbox" id="cpPrimary"'+(p.primary?' checked':'')+'> Main contact</label>',
+    [{t:'Back',cls:'ghost',f:'contacts(\''+clientId+'\')'},{t:'Save',cls:'',f:'contactSave(\''+clientId+'\','+idx+')'}]);
+}
+
+function contactSave(clientId, idx){
+  var c = byId(DB.clients, clientId); if(!c) return;
+  var name = $('cpName').value.trim();
+  if(!name) return toast('Naam likhein','bad');
+  var p = { name:name, role:$('cpRole').value.trim(), phone:$('cpPhone').value.trim(),
+            email:$('cpEmail').value.trim(), primary:!!$('cpPrimary').checked };
+  c.people = c.people || [];
+  if(p.primary) c.people.forEach(function(x){ x.primary = false; });   /* ek hi main */
+  if(idx >= 0) c.people[idx] = p; else c.people.push(p);
+  if(p.primary || c.people.length === 1){ c.who = p.name; c.phone = c.phone || p.phone; }
+  save(); if(sharingOn()) syncSoon();
+  contacts(clientId);
+}
+
+function contactPrimary(clientId, idx){
+  var c = byId(DB.clients, clientId); if(!c || !c.people[idx]) return;
+  c.people.forEach(function(x){ x.primary = false; });
+  c.people[idx].primary = true; c.who = c.people[idx].name;
+  save(); if(sharingOn()) syncSoon(); contacts(clientId);
+}
+
+function contactDelete(clientId, idx){
+  var c = byId(DB.clients, clientId); if(!c || !c.people[idx]) return;
+  if(!confirm('Remove '+c.people[idx].name+'?')) return;
+  var wasPrimary = c.people[idx].primary;
+  c.people.splice(idx, 1);
+  if(wasPrimary && c.people.length){ c.people[0].primary = true; c.who = c.people[0].name; }
+  save(); if(sharingOn()) syncSoon(); contacts(clientId);
+}
+
 function editClient(id){
   var c = id ? byId(DB.clients, id) : null;
   modal(c ? 'Edit client' : 'Add a client',
@@ -13936,6 +14519,8 @@ function saveClient(id){
   c.addr = $('clAddr').value.trim(); c.map = $('clMap').value.trim();
   c.phone = $('clPhone').value.trim();
   c.who = $('clWho') ? $('clWho').value.trim() : (c.who||'');
+  /* pehla contact who se */
+  if(c.who && (!c.people || !c.people.length)){ c.people = [{ name:c.who, role:'', phone:($('clWa')?$('clWa').value.trim():'')||c.phone||'', email:($('clEmail')?$('clEmail').value.trim():''), primary:true }]; }
   c.wa = $('clWa') ? $('clWa').value.trim() : (c.wa||'');
   c.email = $('clEmail') ? $('clEmail').value.trim() : (c.email||'');
   c.brand = $('clBrand').value;
@@ -13984,6 +14569,34 @@ function editMachine(id){
     '</div>'+
     '<div class="field"><label>Site address (only if not at the client\u2019s main office)</label>'+
       '<input id="mcSite" value="'+esc(m?m.site||'':'')+'" placeholder="Their Port Qasim plant"></div>'+
+    (ME.role === 'admin' ? (
+      '<div class="field"><label>Machine type</label><select id="mcType">'+
+        '<option value="rental"'+(m&&m.mtype==='rental'?' selected':'')+'>Rental (on rent to client)</option>'+
+        '<option value="sold"'+(!m||m.mtype!=='rental'?' selected':'')+'>Sold / client-owned</option>'+
+      '</select></div>'+
+      '<div class="two">'+
+        '<div class="field"><label>Purchase cost (Rs)</label>'+
+          '<input id="mcCost" type="number" value="'+esc(m?m.cost||'':'')+'" placeholder="250000"></div>'+
+        '<div class="field"><label>Bought on</label>'+
+          '<input id="mcBought" type="date" value="'+esc(m?m.bought||'':'')+'"></div>'+
+      '</div>'+
+      '<div class="two">'+
+        '<div class="field"><label>Monthly rent (Rs)</label>'+
+          '<input id="mcRent" type="number" value="'+esc(m?m.rent||'':'')+'" placeholder="15000">'+
+          '<div class="help">Fixed rent per mahina.</div></div>'+
+        '<div class="field"><label>Depreciation (months)</label>'+
+          '<input id="mcDep" type="number" value="'+esc(m?m.depMonths||'':'')+'" placeholder="'+(costRate('depMonths')||12)+'">'+
+          '<div class="help">Khali = default ('+(costRate('depMonths')||12)+').</div></div>'+
+      '</div>'+
+      '<div class="two">'+
+        '<div class="field"><label>Per-copy rate (Rs)</label>'+
+          '<input id="mcCopy" type="number" step="0.01" value="'+esc(m?m.copyRate||'':'')+'" placeholder="0">'+
+          '<div class="help">Agar per-copy billing ho (rent ke bajaye).</div></div>'+
+        '<div class="field"><label>Minimum charge (Rs)</label>'+
+          '<input id="mcMin" type="number" value="'+esc(m?m.minCharge||'':'')+'" placeholder="0">'+
+          '<div class="help">Per-copy ke saath, kam se kam itna.</div></div>'+
+      '</div>'
+    ) : '')+
     (m && m.gps ? '<div class="help" style="margin:-4px 0 10px">\u{1F4CD} Exact spot saved by '+esc(m.gpsBy||'a technician')+
       ' \u00b7 <a href="#" onclick="var x=byId(DB.machines,\''+m.id+'\');x.gps=\'\';x._at=now();save();editMachine(\''+m.id+'\');return false">clear it</a></div>' : '')+
     (m && (m.serial||'').trim()
@@ -14017,6 +14630,15 @@ function saveMachine(id){
   if(!m){ m = { id:uid() }; DB.machines.push(m); }
   m.client = $('mcClient').value; m.model = model; m.serial = serial;
   m.dept = $('mcDept').value.trim(); m.place = $('mcPlace').value.trim();
+  if(ME.role === 'admin'){
+    if($('mcType')) m.mtype = $('mcType').value;
+    if($('mcCost')) m.cost = parseFloat($('mcCost').value) || 0;
+    if($('mcBought')) m.bought = $('mcBought').value;
+    if($('mcRent')) m.rent = parseFloat($('mcRent').value) || 0;
+    if($('mcDep')) m.depMonths = parseFloat($('mcDep').value) || 0;
+    if($('mcCopy')) m.copyRate = parseFloat($('mcCopy').value) || 0;
+    if($('mcMin')) m.minCharge = parseFloat($('mcMin').value) || 0;
+  }
   m.site = $('mcSite').value.trim();
   m._at = now();
   logIt('machine',(id?'Edited ':'Added ')+model, serial);
@@ -14040,9 +14662,38 @@ function listUsers(){
      {t:'+ Add',cls:'',f:'editUser(null)'}]);
 }
 
+var _usPhoto = '';
+function userAvatarInner(u){
+  if(u && u.photo) return '<img src="'+u.photo+'" alt="">';
+  return u ? initials(u.name) : '\u{1F464}';
+}
+function usPickPhoto(){
+  pickPhoto(function(src){
+    _usPhoto = src;
+    var av = $('usAv'); if(av) av.innerHTML = '<img src="'+src+'" alt="">';
+  }, { gallery:true });
+}
+function usClearPhoto(){
+  _usPhoto = '';
+  var av = $('usAv'); if(av) av.innerHTML = '\u{1F464}';
+}
+function userPhoto(uid){
+  var u = byId(DB.users, uid);
+  return (u && u.photo) ? u.photo : '';
+}
 function editUser(id){
   var u = id ? byId(DB.users, id) : null;
+  _usPhoto = (u && u.photo) || '';
   modal(u ? 'Edit ' + u.name : 'Add a person',
+    '<div class="field"><label>Photo</label>'+
+      '<div class="us-photo-row">'+
+        '<div id="usAv" class="us-av">'+userAvatarInner(u)+'</div>'+
+        '<div>'+
+          '<button class="btn ghost sm" onclick="usPickPhoto()">\u{1F4F7} Choose photo</button>'+
+          (u&&u.photo?' <button class="btn ghost sm" onclick="usClearPhoto()">Remove</button>':'')+
+          '<div class="help">Team, chat aur jobs par is ki tasveer dikhegi.</div>'+
+        '</div>'+
+      '</div></div>'+
     '<div class="field"><label>Name</label>'+
       '<input id="usName" value="'+esc(u?u.name:'')+'"></div>'+
     '<div class="field"><label>User name</label>'+
@@ -14111,6 +14762,7 @@ function saveUser(id){
   u.name = name; u.email = email; u.role = $('usRole').value;
   if($('usPhone')) u.phone = $('usPhone').value.trim();
   if($('usDob')) u.dob = $('usDob').value;
+  u.photo = _usPhoto || '';
   u.active = !!$('usActive').value;
   if(pass){ setPass(u, pass); u.mustChange = true; }
   u._at = now();
@@ -14156,12 +14808,46 @@ function listLog(){
 }
 
 function backup(){
-  var blob = new Blob([JSON.stringify(DB,null,2)], {type:'application/json'});
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'complaints-backup-' + today() + '.json';
-  a.click();
-  toast('Downloaded','good');
+  /* Do cheezein: is phone ka data foran download, aur (admin ko) server ki
+     rozana mehfooz copiyan jinhe wapas laaya ja sakta hai. */
+  var body =
+    '<div class="field"><label>This device</label>'+
+      '<button class="btn ghost" onclick="backupThisDevice()">\u2B07 Download everything on this phone</button>'+
+      '<div class="help">Is phone ka poora data ek file mein.</div></div>';
+  if(ME.role === 'admin' && sharingOn()){
+    body += '<div class="field"><label>Server backups</label>'+
+      '<div id="bkList" class="help">Loading\u2026</div></div>';
+  }
+  modal('Backup', body, [{t:'Close',cls:'ghost',f:'closeModal()'}]);
+  if(ME.role === 'admin' && sharingOn()) backupLoadList();
+}
+
+function backupThisDevice(){
+  var name = 'paragon-backup-' + today() + '.json';
+  saveText(name, JSON.stringify(DB, null, 2), 'application/json');
+}
+
+function backupLoadList(){
+  hrCall({ action:'backup.list' }).then(function(d){
+    var el = $('bkList'); if(!el) return;
+    if(!d || !d.ok){ el.innerHTML = 'Could not load backups.'; return; }
+    if(!d.backups.length){ el.innerHTML = 'No server backups yet \u2014 the first is kept once data changes.'; return; }
+    el.innerHTML = '<div class="help" style="margin-bottom:6px">Server har roz apni copy rakhta hai. '+
+      'Kisi din ki copy download karein:</div>' +
+      d.backups.map(function(b){
+        return '<div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)">'+
+          '<span>'+dmy(b.day)+' <span class="meta">('+Math.round(b.size/1024)+' KB)</span></span>'+
+          '<button class="btn ghost sm" onclick="backupGet(\''+b.day+'\')">Download</button></div>';
+      }).join('');
+  }).catch(function(){ var el=$('bkList'); if(el) el.innerHTML='Could not load backups.'; });
+}
+
+function backupGet(day){
+  toast('Getting '+dmy(day)+'\u2026');
+  hrCall({ action:'backup.get', day:day }).then(function(d){
+    if(!d || !d.ok) return toast((d&&d.msg)||'Could not get it','bad');
+    saveText('paragon-server-backup-'+day+'.json', JSON.stringify(d.data, null, 2), 'application/json');
+  }).catch(function(){ toast('Could not get it','bad'); });
 }
 
 /* ============================================================
