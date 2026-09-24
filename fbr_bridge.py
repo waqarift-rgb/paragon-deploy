@@ -756,28 +756,51 @@ def next_number(cid, req):
     return {"ok": True, "numbers": made, "next": nums[-1] + 1}
 
 
+# Session store - login token -> client id (memory, restart par clear)
+_sessions = {}   # token -> {cid, at}
+
 def client_login(cid, req):
-    """Client ka software login server se verify. Admin ne set kiya ho tabhi."""
-    c = load_clients().get(cid)
-    if not c:
-        return {"ok": False, "msg": "This account is not set up. Contact your provider."}
-    if not c.get("active", True):
-        return {"ok": False, "msg": "This account is switched off. Contact your provider."}
+    """Client login verify. Username SE client dhoondo (client id ki zaroorat nahi).
+    Shared secret ki bhi zaroorat nahi - login hi kaafi."""
     lu = str(req.get("user") or "").strip().lower()
     lp = str(req.get("pass") or "")
-    stored_user = c.get("login_user", "")
+    if not lu or not lp:
+        return {"ok": False, "msg": "Enter your username and password."}
+
+    # SAARE clients mein se login_user match karo (client id ki zaroorat nahi)
+    clients = load_clients()
+    found_cid, c = None, None
+    for xcid, xc in clients.items():
+        if str(xc.get("login_user", "")).lower() == lu:
+            found_cid, c = xcid, xc
+            break
+
+    if not c:
+        return {"ok": False, "msg": "Wrong username or password."}
+    if not c.get("active", True):
+        return {"ok": False, "msg": "This account is switched off. Contact your provider."}
     stored_hash = c.get("login_hash", "")
     stored_salt = c.get("login_salt", "")
-    # agar admin ne login set nahi kiya -> access nahi (aap ka rule)
-    if not stored_user or not stored_hash:
-        return {"ok": False, "msg": "No login has been set up for this account by the administrator."}
-    if lu != stored_user:
-        return {"ok": False, "msg": "Wrong username or password."}
+    if not stored_hash:
+        return {"ok": False, "msg": "No login has been set up by the administrator."}
     if admin_hash(lp, stored_salt) != stored_hash:
         return {"ok": False, "msg": "Wrong username or password."}
-    return {"ok": True, "user": stored_user,
+
+    # login sahi - session token banao (shared secret ki jagah)
+    tok = secrets.token_urlsafe(24)
+    _sessions[tok] = {"cid": found_cid, "at": time.time()}
+    return {"ok": True, "user": lu, "client": found_cid,
+            "session": tok,
             "mustChange": bool(c.get("login_mustchange", False)),
             "company": c.get("name", "")}
+
+
+def session_client(tok):
+    """Session token se client nikaalo."""
+    s = _sessions.get(tok)
+    if not s:
+        return None
+    return s.get("cid")
 
 
 def client_change_pass(cid, req):
@@ -903,13 +926,30 @@ def store_stats(cid):
 
 
 def handle(req):
-    cid = str(req.get("client") or req.get("clientId") or "").strip().lower()
-    c, err = find_client(cid, req.get("key"))
-    if err:
-        return {"ok": False, "msg": err}
-
     action = req.get("action", "")
     env = req.get("env", "sandbox")
+
+    # clientlogin - auth se pehle (login karne ke liye)
+    if action == "clientlogin":
+        return client_login(req.get("client", ""), req)
+
+    # Session token ho to us se client (shared secret ki zaroorat NAHI)
+    sess_tok = req.get("session") or ""
+    cid = ""
+    c = None
+    if sess_tok:
+        scid = session_client(sess_tok)
+        if scid:
+            cid = scid
+            c = load_clients().get(scid)
+            if not c or not c.get("active", True):
+                return {"ok": False, "msg": "Session invalid. Please sign in again."}
+    # session nahi - purana tareeqa (client id + secret) - backward compat
+    if not c:
+        cid = str(req.get("client") or req.get("clientId") or "").strip().lower()
+        c, err = find_client(cid, req.get("key"))
+        if err:
+            return {"ok": False, "msg": err}
 
     if action == "ping":
         return {"ok": True,

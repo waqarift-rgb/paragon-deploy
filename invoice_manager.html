@@ -464,7 +464,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 12.1 · Cloud Login · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 12.4 · First Login PW · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -521,7 +521,7 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="sidebar-foot">
       <div id="sbUser" style="margin-bottom:7px"></div>
       <button onclick="doLogout()">Sign out</button>
-      <div class="sb-ver">Invoice Manager v12.1</div>
+      <div class="sb-ver">Invoice Manager v12.4</div>
     </div>
   </aside>
 
@@ -2856,9 +2856,17 @@ function restoreLogin(){
 }
 function paintLogin(){
   setTimeout(restoreLogin, 50);
-  // Multi-client cloud: login page par FBR branding fixed - client detail NAHI
-  var only = DB.users && DB.users.length === 1 && DB.users[0].mustChange;
-  if($('lgHint')) $('lgHint').style.display = only ? 'block' : 'none';
+  // Server (cloud) par khula ho to admin/admin123 hint HIDE - cloud login hai
+  var isCloud = !!window._autoBridge;
+  if($('lgHint')){
+    if(isCloud){
+      $('lgHint').innerHTML = 'Sign in with the username and password provided by your administrator.';
+      $('lgHint').style.display = 'block';
+    } else {
+      var only = DB.users && DB.users.length === 1 && DB.users[0].mustChange;
+      $('lgHint').style.display = only ? 'block' : 'none';
+    }
+  }
 }
 
 /* ---------- LOGIN ---------- */
@@ -2878,9 +2886,83 @@ function doLogin(){
     }
   } catch(e){}
 
-  // CLOUD LOGIN: bridge set ho to server se verify (admin ne login set kiya)
-  if(DB.fbr && DB.fbr.url && DB.fbr.client){
+  // CLOUD LOGIN: server se khula ho (auto-bridge) YA bridge set - server verify
+  var bridgeUrl = (DB.fbr && DB.fbr.url) || window._autoBridge || '';
+  if(bridgeUrl){
     err.textContent = 'Signing in\u2026';
+    cloudLogin(bridgeUrl, u, p, err);
+    return;
+  }
+  localLoginFallback(u, p, err);
+}
+
+/* Server se login verify - client id server ke clients se match kare */
+function cloudLogin(bridgeUrl, u, p, err){
+  // server par clients hain - unke login username se match. Client id = login username try
+  // pehle username ko client id maano, warna server saare clients check kare
+  var attemptCid = u;  // client apna username daale (jo admin ne set kiya)
+  fetch(bridgeUrl, {
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({ action:'clientlogin', client: attemptCid, user:u, pass:p })
+  }).then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && d.ok){
+        // login sahi - session token save (secret ki zaroorat nahi)
+        window._cloudSession = d.session || '';
+        DB.fbr = DB.fbr || {};
+        DB.fbr.url = bridgeUrl;
+        DB.fbr.client = d.client || attemptCid;
+        loadFromServer(function(){
+          ME = { user:d.user, name:d.user, role:'admin' };
+          if(!DB.users || !DB.users.length){
+            DB.users = [{ id:uid(), user:d.user, name:d.user, role:'admin', active:true, salt:'', hash:'' }];
+          }
+          enterAppCloud();
+          if(d.mustChange){ setTimeout(function(){ forceCloudPassword(); }, 600); }
+        });
+      } else {
+        err.textContent = (d && d.msg) || 'Wrong username or password.';
+      }
+    })
+    .catch(function(){ localLoginFallback(u, p, err); });
+}
+
+/* First login - naya password (server par change) */
+function forceCloudPassword(){
+  modal('Set your password',
+    '<div style="font-size:13px;color:var(--ink-2);line-height:1.7;margin-bottom:16px">'+
+      'This is your first sign-in. Please choose your own password before continuing.</div>'+
+    '<div class="field"><label>New password</label>'+
+      '<input id="fcNew" type="password" autocomplete="new-password"></div>'+
+    '<div class="field" style="margin-top:12px"><label>Repeat it</label>'+
+      '<input id="fcNew2" type="password"></div>'+
+    '<div class="help" style="margin-top:8px">At least 4 characters.</div>',
+    [{t:'Set password',cls:'',f:'saveCloudPassword()'}], false);  // close nahi (force)
+}
+function saveCloudPassword(){
+  var a = $('fcNew').value, b = $('fcNew2').value;
+  if(a.length < 4){ toast('Password must be at least 4 characters','bad'); return; }
+  if(a !== b){ toast('Passwords do not match','bad'); return; }
+  // pehla password (jo login mein use hua) - remembered
+  var oldPass = '';
+  try { oldPass = atob(localStorage.getItem('rememberPass')||''); } catch(e){}
+  if(!oldPass) oldPass = $('lgPass') ? $('lgPass').value : '';
+  callBridge({ action:'clientchangepass', old:oldPass, new:a })
+    .then(function(d){
+      if(d && d.ok){
+        closeModal();
+        toast('Password changed. Please remember it.','good');
+        // remember update
+        try { if(localStorage.getItem('rememberUser')) localStorage.setItem('rememberPass', btoa(a)); } catch(e){}
+      } else {
+        toast((d && d.msg) || 'Could not change password','bad');
+      }
+    })
+    .catch(function(){ toast('Could not reach server','bad'); });
+}
+
+function _oldCloudLogin(u,p,err){
+  if(DB.fbr && DB.fbr.url && DB.fbr.client){
     callBridge({ action:'clientlogin', user:u, pass:p })
       .then(function(d){
         if(d && d.ok){
@@ -4073,11 +4155,13 @@ function showPayload(){
 
 /* ---------- talk to the bridge ---------- */
 function callBridge(body){
-  if(!DB.fbr.url) return Promise.reject(new Error('No bridge URL set'));
-  return fetch(DB.fbr.url, {
+  var url = DB.fbr.url || window._autoBridge || '';
+  if(!url) return Promise.reject(new Error('No bridge URL set'));
+  return fetch(url, {
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body: JSON.stringify(Object.assign(
-      { key: DB.fbr.key, env: DB.fbr.env, client: DB.fbr.client || '' }, body))
+      { key: DB.fbr.key, env: DB.fbr.env, client: DB.fbr.client || '',
+        session: window._cloudSession || '' }, body))
   }).then(function(r){ return r.json(); });
 }
 
