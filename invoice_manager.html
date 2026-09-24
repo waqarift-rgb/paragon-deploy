@@ -464,7 +464,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 13.0 · Secure Sessions · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 13.3 · Full Audit · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -521,7 +521,7 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="sidebar-foot">
       <div id="sbUser" style="margin-bottom:7px"></div>
       <button onclick="doLogout()">Sign out</button>
-      <div class="sb-ver">Invoice Manager v13.0</div>
+      <div class="sb-ver">Invoice Manager v13.3</div>
     </div>
   </aside>
 
@@ -2029,8 +2029,9 @@ function printCommercial(id, withTax){
       '<td class="num">'+money(hideTax ? l.total : l.excl)+'</td></tr>';
   }).join('');
 
-  var grand = hideTax ? (v.total + (v.lines.reduce(function(a,l){return a+((l.fbrx&&l.fbrx.further)||0);},0)))
-                      : v.sub;
+  var furtherT = v.lines.reduce(function(a,l){return a+((l.fbrx&&l.fbrx.further)||0);},0);
+  // without tax: total (tax-included). with tax: sub + tax (breakdown dikhega)
+  var grand = hideTax ? (v.total + furtherT) : (v.sub + v.tax + furtherT);
 
   var html =
     '<div class="doc">'+
@@ -2054,6 +2055,10 @@ function printCommercial(id, withTax){
         '<th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th>'+
       '</tr></thead><tbody>'+lines+'</tbody></table>'+
       '<div class="d-sum">'+
+        (hideTax ? '' :
+          '<div><span>Sub Total:</span><span>'+money(v.sub)+'</span></div>'+
+          '<div><span>Sales Tax:</span><span>'+money(v.tax)+'</span></div>'+
+          (furtherT?'<div><span>Further Tax:</span><span>'+money(furtherT)+'</span></div>':''))+
         '<div class="g"><span>Total:</span><span>RS. '+money(grand)+'</span></div>'+
       '</div>'+
       '<div class="d-words"><div><b>Total in words</b> '+esc(words(grand))+'</div></div>'+
@@ -2917,10 +2922,41 @@ function cloudLogin(bridgeUrl, u, p, err){
           if(d.mustChange){ setTimeout(function(){ forceCloudPassword(); }, 600); }
         });
       } else {
-        err.textContent = (d && d.msg) || 'Wrong username or password.';
+        // Server login fail - shayad yeh client ka STAFF user hai (client-admin ne banaya)
+        // Local users check karo (client ke apne data mein)
+        tryStaffLogin(u, p, err);
       }
     })
     .catch(function(){ localLoginFallback(u, p, err); });
+}
+
+/* Client ke banaye staff users ka login (local data se) */
+function tryStaffLogin(u, p, err){
+  // DB.users mein se match (client ke staff)
+  var rec = (DB.users || []).find(function(x){ return x.user && x.user.toLowerCase() === u; });
+  if(!rec){
+    err.textContent = 'Wrong username or password.';
+    return;
+  }
+  if(!rec.active){ err.textContent = 'This account has been switched off. Ask your administrator.'; return; }
+  if(rec.lockUntil && Date.now() < rec.lockUntil){
+    var s = Math.ceil((rec.lockUntil - Date.now())/1000);
+    err.textContent = 'Too many failed attempts. Try again in ' + s + ' second(s).'; return;
+  }
+  if(hashPw(p, rec.salt) !== rec.hash){
+    rec.fails = (rec.fails||0) + 1;
+    var max = (DB.sec && DB.sec.tries) || 5;
+    if(rec.fails >= max){ rec.lockUntil = Date.now() + 60000; }
+    save();
+    err.textContent = 'Wrong username or password.';
+    return;
+  }
+  // staff login sahi
+  rec.fails = 0; rec.last = new Date().toISOString(); save();
+  ME = rec;
+  if(rec.mustChange){ enterAppCloud(); setTimeout(function(){ if(typeof forceNewPw==='function') forceNewPw(); }, 400); }
+  else { enterAppCloud(); }
+  if(typeof logIt === 'function') logIt('auth','Signed in', rec.user);
 }
 
 /* First login - naya password (server par change) */
@@ -6473,7 +6509,8 @@ function verifyBuyer(){
   var ntn = $('mcNtn') ? $('mcNtn').value.trim() : '';
   var out = $('mcVerify');
   if(!ntn) { out.innerHTML = '<span style="color:var(--red)">Enter an NTN or CNIC first.</span>'; return; }
-  if(!DB.fbr.url){ out.innerHTML = '<span style="color:var(--red)">Set the bridge up on the FBR link page first.</span>'; return; }
+  var bridgeUp = (DB.fbr && DB.fbr.url) || window._autoBridge || window._cloudSession;
+  if(!bridgeUp){ out.innerHTML = '<span style="color:var(--red)">Not connected to FBR. Sign in again.</span>'; return; }
 
   out.innerHTML = 'Asking FBR…';
   callBridge({ action:'regtype', ntn: ntnClean(ntn) })
@@ -6675,7 +6712,7 @@ function fbrTaxReference(hs, rate, sro, sroItem, saleType){
       '</div>'+
     '</div>';
 
-  modal('FBR Tax Reference &amp; Proof', body,
+  modal('FBR Tax Reference and Proof', body,
     [{t:'Close',cls:'ghost',f:'closeModal()'},
      {t:'Print / Save',cls:'',f:'fbrRefPrint()'}], true);
   window._fbrRefBody = body;
@@ -6685,7 +6722,7 @@ function fbrRefPrint(){
   if(!w){ toast('Allow pop-ups to print','bad'); return; }
   w.document.write('<html><head><title>FBR Tax Reference</title>'+
     '<style>body{font-family:Arial,sans-serif;max-width:640px;margin:30px auto;padding:0 20px}</style>'+
-    '</head><body><h2 style="color:#1B4F9C">FBR Tax Reference &amp; Proof</h2>'+
+    '</head><body><h2 style="color:#1B4F9C">FBR Tax Reference and Proof</h2>'+
     (window._fbrRefBody||'')+
     '<div style="margin-top:20px;font-size:11px;color:#888">Generated by '+
     ((DB.company&&DB.company.name)||'Invoice Manager')+' on '+dmy(today())+'</div>'+
