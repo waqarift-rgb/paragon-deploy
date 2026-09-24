@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 13.4 — FBR Digital Invoicing
+   Invoice Manager 14.2 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -451,7 +451,11 @@ tbody tr:hover{background:var(--surface-2)}
 /* line item inputs - full width (numbers cut na hon) */
 #lineRows input{width:100%;box-sizing:border-box;min-width:0;font-size:12px;padding:6px 5px}
 #lineRows td.num input{text-align:right;font-variant-numeric:tabular-nums}
-#lineRows input[readonly]{background:var(--surface-2);border-color:transparent;font-weight:500;font-size:11.5px}
+#lineRows input[readonly]{background:var(--surface-2);border-color:transparent;font-weight:600;font-size:11.5px;cursor:not-allowed;color:var(--ink)}
+#lineRows input[readonly]:hover{background:var(--line-soft)}
+/* auto-locked field marker */
+.auto-locked{position:relative}
+.auto-locked::after{content:"auto";position:absolute;right:2px;top:-7px;font-size:7px;color:var(--teal);background:var(--teal-soft);padding:0 3px;border-radius:3px;pointer-events:none}
 /* readonly totals thoda chhoti font taake bade numbers fit hon */
 #lineRows .l-excl,#lineRows .l-tamt,#lineRows .l-tot{font-size:11px;letter-spacing:-0.2px}
 /* table wide numbers ke liye min-width columns */
@@ -483,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 13.9 · Download+Email · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 14.2 · Auto Lock · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -540,7 +544,7 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="sidebar-foot">
       <div id="sbUser" style="margin-bottom:7px"></div>
       <button onclick="doLogout()">Sign out</button>
-      <div class="sb-ver">Invoice Manager v13.9</div>
+      <div class="sb-ver">Invoice Manager v14.2</div>
     </div>
   </aside>
 
@@ -1824,10 +1828,11 @@ function addLine(data){
         return '<option'+(u===d.unit?' selected':'')+'>'+u+'</option>';}).join('')+'</select></td>'+
     '<td class="num"><input class="l-qty" type="number" step="any" min="0" value="'+d.qty+'"></td>'+
     '<td class="num"><input class="l-rate" type="number" step="any" min="0" value="'+d.rate+'"></td>'+
-    '<td class="num"><input class="l-excl" type="text" readonly tabindex="-1"></td>'+
-    '<td class="num"><input class="l-tax" type="number" step="any" value="'+d.tax+'"></td>'+
-    '<td class="num"><input class="l-tamt" type="text" readonly tabindex="-1"></td>'+
-    '<td class="num"><input class="l-tot" type="text" readonly tabindex="-1"></td>'+
+    '<td class="num"><input class="l-excl" type="text" readonly tabindex="-1" title="Calculated automatically (Qty x Rate)"></td>'+
+    '<td class="num"><input class="l-tax" type="number" step="any" value="'+d.tax+'"'+
+      ((DB.company.invSettings&&DB.company.invSettings.autoRate)?' readonly tabindex="-1" title="Rate comes from FBR (Automatic tax rate is on)"':'')+'></td>'+
+    '<td class="num"><input class="l-tamt" type="text" readonly tabindex="-1" title="Calculated automatically (Value x Tax%)"></td>'+
+    '<td class="num"><input class="l-tot" type="text" readonly tabindex="-1" title="Calculated automatically (Value + Tax)"></td>'+
     '<td><button class="del" title="Remove line">×</button></td>';
   tr.querySelector('.del').onclick = function(){
     if($('lineRows').children.length === 1){ toast('An invoice needs at least one line'); return; }
@@ -2899,6 +2904,7 @@ function doLogin(){
   var bridgeUrl = (DB.fbr && DB.fbr.url) || window._autoBridge || '';
   if(bridgeUrl){
     err.textContent = 'Signing in\u2026';
+    window._loginPass = p;  // first-login password change ke liye yaad rakho
     cloudLogin(bridgeUrl, u, p, err);
     return;
   }
@@ -2997,9 +3003,9 @@ function saveCloudPassword(){
   if(a.length < 4){ toast('Password must be at least 4 characters','bad'); return; }
   if(a !== b){ toast('Passwords do not match','bad'); return; }
   // pehla password (jo login mein use hua) - remembered
-  var oldPass = '';
-  try { oldPass = atob(localStorage.getItem('rememberPass')||''); } catch(e){}
-  if(!oldPass) oldPass = $('lgPass') ? $('lgPass').value : '';
+  var oldPass = window._loginPass || '';
+  if(!oldPass){ try { oldPass = atob(localStorage.getItem('rememberPass')||''); } catch(e){} }
+  if(!oldPass && $('lgPass')) oldPass = $('lgPass').value;
   callBridge({ action:'clientchangepass', old:oldPass, new:a })
     .then(function(d){
       if(d && d.ok){
@@ -3008,10 +3014,11 @@ function saveCloudPassword(){
         // remember update
         try { if(localStorage.getItem('rememberUser')) localStorage.setItem('rememberPass', btoa(a)); } catch(e){}
       } else {
-        toast((d && d.msg) || 'Could not change password','bad');
+        // change fail - user ko batao, modal khula rakho (retry)
+        toast((d && d.msg) || 'Could not change password. Try again.','bad');
       }
     })
-    .catch(function(){ toast('Could not reach server','bad'); });
+    .catch(function(){ toast('Could not reach server. Check connection.','bad'); });
 }
 
 function _oldCloudLogin(u,p,err){
@@ -3943,14 +3950,18 @@ function lineFbr(tr){
 function openLineFbr(btn){
   var tr = btn.closest('tr'), d = lineFbr(tr);
   var desc = tr.querySelector('.l-desc').value || 'this line';
-  modal('FBR details — ' + desc,
-    '<div style="font-size:12.5px;color:var(--ink-2);line-height:1.6;margin-bottom:16px">'+
-    'Leave these alone unless FBR asks for them. Blank means the invoice-level sale type is used and '+
-    'the amount is zero.</div>'+
+  modal('Extra FBR options — ' + desc,
+    '<div style="background:#EDFBF3;border:1px solid #A7E5C4;border-radius:8px;padding:12px 14px;'+
+      'margin-bottom:18px;font-size:12.5px;color:#1B7A4B;line-height:1.6">'+
+      '&#10003; <b>Most invoices don&rsquo;t need anything here.</b> The line already has its HS code, '+
+      'rate and tax. Only fill these if FBR asks — a special SRO rate, or a 3rd-schedule item.</div>'+
+    '<div style="font-size:12px;font-weight:700;color:#1C2E4A;letter-spacing:.03em;'+
+      'border-bottom:1px solid var(--line-soft);padding-bottom:8px;margin-bottom:12px">'+
+      'SPECIAL RATE OR SRO <span style="font-weight:400;color:var(--ink-3)">— only if rate is not 18%</span></div>'+
     '<div class="grid g2">'+
       '<div class="field"><label>Sale type for this line</label>'+
         '<select id="lfType">' +
-          '<option value="">— same as the invoice —</option>' +
+          '<option value="">Same as the invoice (recommended)</option>' +
           SALE_TYPES.map(function(s){
             return '<option value="'+esc(s)+'"'+(s === d.saleType ? ' selected' : '')+
                    '>'+esc(s)+'</option>'; }).join('') +
@@ -3971,7 +3982,10 @@ function openLineFbr(btn){
         '$(\'lfSro\').value,$(\'lfSroItem\').value,($(\'fSaleType\')?$(\'fSaleType\').value:\'\'))">'+
         'View FBR proof &amp; source</button>'+
     '</div>'+
-    '<div class="grid g4" style="margin-top:14px">'+
+    '<div style="font-size:12px;font-weight:700;color:#1C2E4A;letter-spacing:.03em;'+
+      'border-bottom:1px solid var(--line-soft);padding-bottom:8px;margin:22px 0 12px">'+
+      'ADDITIONAL TAXES <span style="font-weight:400;color:var(--ink-3)">— rarely needed</span></div>'+
+    '<div class="grid g4">'+
       '<div class="field"><label>Further tax</label>'+
         '<input id="lfFurther" type="number" step="0.01" value="'+(d.further||0)+'"></div>'+
       '<div class="field"><label>Extra tax</label>'+
@@ -4008,8 +4022,9 @@ addLine = function(data){
   _addLine(data);
   var tr = $('lineRows').lastElementChild;
   var td = document.createElement('td');
-  td.innerHTML = '<button class="fbrbtn" title="FBR details for this line" '+
-    'style="color:var(--ink-3);font-size:13px;padding:0 4px">⚙</button>';
+  td.innerHTML = '<button class="fbrbtn" title="Extra FBR options for this line (SRO, further tax, etc.)" '+
+    'style="color:var(--teal);font-size:11px;padding:3px 9px;border:1px solid var(--line);'+
+    'border-radius:5px;background:var(--surface);white-space:nowrap;font-weight:500">FBR &#9662;</button>';
   tr.insertBefore(td, tr.lastElementChild);
   td.querySelector('button').onclick = function(){ openLineFbr(this); };
   if(data && data.fbrx){
