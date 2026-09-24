@@ -160,7 +160,7 @@ a:hover{text-decoration:underline}
 .btn.sm{padding:5px 11px;font-size:12.5px}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 
-.card{background:var(--surface);border:1px solid var(--line);border-radius:3px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px}
 .card-hd{padding:15px 20px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;gap:10px}
 .card-hd h2{font-size:14.5px;font-weight:600;letter-spacing:-.1px}
 .card-hd .spacer{flex:1}
@@ -209,14 +209,19 @@ tbody tr:hover{background:var(--surface-2)}
 
 /* ============ FIGURES ============ */
 .stat{
-  background:var(--surface);border:1px solid var(--line);border-radius:3px;
-  padding:18px 20px;position:relative;
+  background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  padding:20px 22px;position:relative;overflow:hidden;
+  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
 }
-.stat:before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:2px;background:var(--line)}
-.stat:first-child:before{background:var(--teal)}
-.stat .k{font-size:12px;color:var(--ink-2);margin-bottom:8px}
-.stat .v{font-size:26px;font-weight:500;line-height:1;letter-spacing:-.7px;font-variant-numeric:tabular-nums}
-.stat .m{font-size:11.5px;color:var(--ink-3);margin-top:6px}
+.stat:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(20,28,38,.08);border-color:var(--teal)}
+.stat:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--teal)}
+.stat:nth-child(1):before{background:#3B82F6}
+.stat:nth-child(2):before{background:#10B981}
+.stat:nth-child(3):before{background:#8B5CF6}
+.stat:nth-child(4):before{background:#F59E0B}
+.stat .k{font-size:11.5px;color:var(--ink-3);margin-bottom:10px;font-weight:500;text-transform:none}
+.stat .v{font-size:29px;font-weight:600;line-height:1;letter-spacing:-1px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.stat .m{font-size:11.5px;color:var(--ink-3);margin-top:8px}
 
 .empty{padding:52px 20px;text-align:center;color:var(--ink-3)}
 .empty p{margin-bottom:16px;font-size:13.5px}
@@ -432,7 +437,7 @@ tbody tr:hover{background:var(--surface-2)}
       <div class="lb-rule"></div>
       <div class="lb-lines" id="lbLines"></div>
       <div class="lb-foot" id="lbFoot">FBR-ready sales tax invoicing</div>
-      <div style="margin-top:10px;font-size:11px;color:#8896a5;font-family:monospace">Version 9.3 · NTN+ATL · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:#8896a5;font-family:monospace">Version 9.5 · FBR Banner · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -497,6 +502,25 @@ tbody tr:hover{background:var(--surface-2)}
 
       <!-- DASHBOARD -->
       <div class="page on" id="pg-dash">
+        <!-- FBR Digital Invoicing banner -->
+        <div id="dashFbrBanner" style="display:flex;align-items:center;gap:16px;
+             background:linear-gradient(100deg,#0E7C3F 0%,#1B4F9C 55%,#153a73 100%);
+             border-radius:10px;padding:16px 22px;margin-bottom:18px;color:#fff;
+             box-shadow:0 4px 18px rgba(27,79,156,.22)">
+          <div style="flex-shrink:0;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);
+               border-radius:8px;padding:8px 12px;text-align:center;line-height:1.15">
+            <div style="font-size:15px;font-weight:800;letter-spacing:2px">FBR</div>
+            <div style="font-size:8px;letter-spacing:1px;opacity:.9">DIGITAL</div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:600" id="dashWelcome">FBR Digital Invoicing</div>
+            <div style="font-size:12px;opacity:.85;margin-top:2px">Real-time sales tax invoicing, integrated with FBR Pakistan</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0" id="dashFbrCount">
+            <div style="font-size:22px;font-weight:700;line-height:1" id="dashSentBig">0</div>
+            <div style="font-size:11px;opacity:.85">sent to FBR</div>
+          </div>
+        </div>
         <div class="grid g4" style="margin-bottom:18px">
           <div class="stat"><div class="k">Invoices this month</div><div class="v" id="stMonth">0</div>
             <div class="m" id="stMonthLbl"></div></div>
@@ -1380,7 +1404,9 @@ function previewNo(){
 function nextNo(){
   var c = DB.company;
   var sep = c.sep == null ? '-' : c.sep;
-  return (c.prefix ? c.prefix+sep : '') + String(c.next).padStart(c.pad||4,'0');
+  var pad = (c.pad === 0 || c.pad === '0') ? 0 : (c.pad || 4);
+  var num = pad > 0 ? String(c.next).padStart(pad,'0') : String(c.next);
+  return (c.prefix ? c.prefix+sep : '') + num;
 }
 function saveCompany(){
   var c = DB.company;
@@ -1389,7 +1415,7 @@ function saveCompany(){
   c.ntn=$('coNtn').value.trim(); c.strn=$('coStrn').value.trim();
   c.phone=$('coPhone').value.trim(); c.email=$('coEmail').value.trim(); c.web=$('coWeb').value.trim();
   c.prefix=$('coPrefix').value.trim(); c.next=parseInt($('coNext').value)||1;
-  c.pad=parseInt($('coPad').value)||4;
+  c.pad=($('coPad').value==='0'||$('coPad').value===0)?0:(parseInt($('coPad').value)||4);
   c.sep=$('coSep') ? $('coSep').value : '-';
   if($('coWords')) c.wordStyle = $('coWords').value;
   c.bank=$('coBank').value.trim(); c.acTitle=$('coAcTitle').value.trim();
@@ -5447,6 +5473,15 @@ function drawDash(){
     st[s]++;
   });
 
+  // FBR banner
+  if($('dashWelcome')){
+    var cname = (DB.company && DB.company.name) || '';
+    $('dashWelcome').textContent = cname ? ('Welcome, ' + cname) : 'FBR Digital Invoicing';
+  }
+  if($('dashSentBig')){
+    var sentCount = DB.invoices.filter(function(v){ return (v.fbr||{}).status === 'sent'; }).length;
+    $('dashSentBig').textContent = sentCount;
+  }
   $('stMonth').textContent = mv.length;
   $('stMonthLbl').textContent = new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'});
   $('stSales').textContent = money0(sales);
@@ -9060,7 +9095,7 @@ function resolveScenario(scenarioCode, onStep){
     'Goods (FED in ST Mode)': ['22','2009','2101','2106','2007','2008']
   };
   if(CHAPTER_HINT[saleType]) cfg._chapterHint = CHAPTER_HINT[saleType];
-  onStep('Resolving ' + scenarioCode + ' (' + saleType + ')… [BUILD-V20-ATL012]');
+  onStep('Resolving ' + scenarioCode + ' (' + saleType + ')… [BUILD-V22-FBR012]');
 
   // Web-researched exact config? Seedha use karo (HS finding skip)
   // Company ki tested values (NTN match) pehle, warna universal EXACT
