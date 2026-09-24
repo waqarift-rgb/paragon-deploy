@@ -585,6 +585,12 @@ def admin_save_client(d):
 
     c["name"] = str(d.get("name")).strip()
     c["ntn"] = str(d.get("ntn") or "").strip()
+    c["strn"] = str(d.get("strn") or "").strip()
+    c["addr"] = str(d.get("addr") or "").strip()
+    c["phone"] = str(d.get("phone") or "").strip()
+    c["prov"] = str(d.get("prov") or "SINDH").strip()
+    c["email"] = str(d.get("email") or "").strip()
+    c["web"] = str(d.get("web") or "").strip()
     c["active"] = bool(d.get("active", True))
 
     # blank means "leave the stored one alone", so a token is never wiped by accident
@@ -792,7 +798,17 @@ def client_login(cid, req):
     return {"ok": True, "user": lu, "client": found_cid,
             "session": tok,
             "mustChange": bool(c.get("login_mustchange", False)),
-            "company": c.get("name", "")}
+            "company": c.get("name", ""),
+            "companyDetail": {
+                "name": c.get("name", ""),
+                "ntn": c.get("ntn", ""),
+                "strn": c.get("strn", ""),
+                "addr": c.get("addr", ""),
+                "phone": c.get("phone", ""),
+                "prov": c.get("prov", "SINDH"),
+                "email": c.get("email", ""),
+                "web": c.get("web", "")
+            }}
 
 
 def session_client(tok):
@@ -1120,8 +1136,30 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
     </div>
    </div>
 
-   <div class="field"><label>NTN <span class="small">optional</span></label>
-    <input type="text" id="fNtn" placeholder="8963611"></div>
+   <div class="row">
+    <div class="field"><label>NTN</label>
+     <input type="text" id="fNtn" placeholder="8963611"></div>
+    <div class="field"><label>STRN <span class="small">optional</span></label>
+     <input type="text" id="fStrn" placeholder="3277876180532"></div>
+   </div>
+   <div class="field"><label>Address</label>
+    <input type="text" id="fAddr" placeholder="Company address"></div>
+   <div class="row">
+    <div class="field"><label>Phone</label>
+     <input type="text" id="fPhone" placeholder="021-1234567"></div>
+    <div class="field"><label>Province</label>
+     <select id="fProv">
+      <option>SINDH</option><option>PUNJAB</option><option>KHYBER PAKHTUNKHWA</option>
+      <option>BALOCHISTAN</option><option>CAPITAL TERRITORY</option>
+      <option>AZAD JAMMU AND KASHMIR</option><option>GILGIT BALTISTAN</option><option>FATA/PATA</option>
+     </select></div>
+   </div>
+   <div class="row">
+    <div class="field"><label>Email <span class="small">optional</span></label>
+     <input type="text" id="fEmail" placeholder="info@company.com"></div>
+    <div class="field"><label>Website <span class="small">optional</span></label>
+     <input type="text" id="fWeb" placeholder="www.company.com"></div>
+   </div>
 
    <div class="field"><label>Sandbox token</label>
     <input type="text" id="fSandbox" placeholder="paste from IRIS">
@@ -1281,7 +1319,7 @@ function loadList(){
 function openForm(){
   EDITING = null;
   $('formTitle').textContent = 'Add a company';
-  ['fName','fId','fNtn','fSandbox','fProd','fSecret','fLoginUser','fLoginPass'].forEach(function(f){
+  ['fName','fId','fNtn','fStrn','fAddr','fPhone','fProv','fEmail','fWeb','fSandbox','fProd','fSecret','fLoginUser','fLoginPass'].forEach(function(f){
     $(f).value = ''; });
   $('fActive').checked = true;
   $('fId').disabled = false;
@@ -1321,7 +1359,7 @@ function saveClient(){
     ntn: $('fNtn').value,
     sandbox: $('fSandbox').value,
     production: $('fProd').value,
-    secret: $('fSecret').value, loginUser: $('fLoginUser')?$('fLoginUser').value:'', loginPass: $('fLoginPass')?$('fLoginPass').value:'',
+    secret: $('fSecret').value, strn: $('fStrn')?$('fStrn').value:'', addr: $('fAddr')?$('fAddr').value:'', phone: $('fPhone')?$('fPhone').value:'', prov: $('fProv')?$('fProv').value:'', email: $('fEmail')?$('fEmail').value:'', web: $('fWeb')?$('fWeb').value:'', loginUser: $('fLoginUser')?$('fLoginUser').value:'', loginPass: $('fLoginPass')?$('fLoginPass').value:'',
     active: $('fActive').checked
   }}).then(function(d){
     if(!d.ok) return say(d.msg, 'bad');

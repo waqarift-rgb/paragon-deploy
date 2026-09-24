@@ -464,7 +464,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 12.4 · First Login PW · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 12.8 · Audited · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -521,7 +521,7 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="sidebar-foot">
       <div id="sbUser" style="margin-bottom:7px"></div>
       <button onclick="doLogout()">Sign out</button>
-      <div class="sb-ver">Invoice Manager v12.4</div>
+      <div class="sb-ver">Invoice Manager v12.8</div>
     </div>
   </aside>
 
@@ -1504,21 +1504,8 @@ function words(amount, style){
 }
 
 /* ---------- LOGIN ---------- */
-function doLogin(){
-  var u = $('lgUser').value.trim().toLowerCase();
-  var p = $('lgPass').value;
-  if(u !== 'admin'){ $('lgErr').textContent = 'Unknown user. Use: admin'; return; }
-  if(p !== DB.company.pw){ $('lgErr').textContent = 'Wrong password. Try again.'; return; }
-  $('lgErr').textContent = '';
-  $('loginScreen').style.display = 'none';
-  $('app').style.display = 'block';
-  boot();
-}
-function doLogout(){
-  $('app').style.display = 'none';
-  $('loginScreen').style.display = 'flex';
-  $('lgPass').value = '';
-}
+/* old doLogin removed - cloud version below */
+/* old doLogout removed */
 document.addEventListener('keydown', function(e){
   if(e.key === 'Enter' && $('loginScreen').style.display !== 'none') doLogin();
 });
@@ -1682,10 +1669,7 @@ function testFbr(){
       s.textContent='Could not reach the bridge. Check the URL and that the deployment allows anyone.';
     });
 }
-function sendToFbr(){
-  toast('Set up the FBR bridge first — see the FBR link page.','bad');
-  go('fbr');
-}
+/* old sendToFbr placeholder removed */
 
 /* ---------- CLIENTS ---------- */
 function drawClients(){
@@ -2582,13 +2566,13 @@ function toCsv(rows){
 }
 
 /* ---------- build the file set ---------- */
-function stamp(){
+function dateStamp(){
   var d = new Date(), p = function(x){ return String(x).padStart(2,'0'); };
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes());
 }
 function fileSet(what){
   var tag = (DB.company.name || 'invoices').replace(/[^a-zA-Z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,28);
-  var base = tag + '_' + stamp();
+  var base = tag + '_' + dateStamp();
   var out = [{ name: base+'.json', blob: new Blob([JSON.stringify(DB,null,2)],{type:'application/json'}) }];
   if(what === 'json') return out;
   out.push({ name: base+'.xlsx',
@@ -2607,7 +2591,7 @@ function fileSet(what){
 function saveXlsx(){
   if(!DB.invoices.length && !DB.clients.length) return toast('Nothing to export yet','bad');
   dlBlob(buildXlsx([tblInvoices(), tblLines(), tblBuyers(), tblProducts(), tblSummary()]),
-    (DB.company.name||'invoices').replace(/[^a-zA-Z0-9]+/g,'-')+'_'+stamp()+'.xlsx');
+    (DB.company.name||'invoices').replace(/[^a-zA-Z0-9]+/g,'-')+'_'+dateStamp()+'.xlsx');
   toast('Excel workbook downloaded','good');
 }
 function saveCsvSet(){
@@ -2916,6 +2900,19 @@ function cloudLogin(bridgeUrl, u, p, err){
           ME = { user:d.user, name:d.user, role:'admin' };
           if(!DB.users || !DB.users.length){
             DB.users = [{ id:uid(), user:d.user, name:d.user, role:'admin', active:true, salt:'', hash:'' }];
+          }
+          // Admin ki company detail auto-fill (agar client ke paas nahi)
+          if(d.companyDetail){
+            var cd = d.companyDetail;
+            if(!DB.company.name && cd.name) DB.company.name = cd.name;
+            if(!DB.company.ntn && cd.ntn) DB.company.ntn = cd.ntn;
+            if(!DB.company.strn && cd.strn) DB.company.strn = cd.strn;
+            if(!DB.company.addr && cd.addr) DB.company.addr = cd.addr;
+            if(!DB.company.phone && cd.phone) DB.company.phone = cd.phone;
+            if(cd.prov && (!DB.company.prov || DB.company.prov==='Sindh')) DB.company.prov = cd.prov;
+            if(!DB.company.email && cd.email) DB.company.email = cd.email;
+            if(!DB.company.web && cd.web) DB.company.web = cd.web;
+            save();
           }
           enterAppCloud();
           if(d.mustChange){ setTimeout(function(){ forceCloudPassword(); }, 600); }
