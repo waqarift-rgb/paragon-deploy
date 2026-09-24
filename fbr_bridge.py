@@ -604,6 +604,19 @@ def admin_save_client(d):
         made = secrets.token_urlsafe(18)
         c["secret"] = made
 
+    # Client ka SOFTWARE LOGIN (username + password) - admin set kare
+    lu = str(d.get("loginUser") or "").strip().lower()
+    lp = str(d.get("loginPass") or "").strip()
+    if lu:
+        c["login_user"] = lu
+    if lp:
+        if len(lp) < 4:
+            return {"ok": False, "msg": "Login password must be at least 4 characters."}
+        salt = secrets.token_hex(8)
+        c["login_salt"] = salt
+        c["login_hash"] = admin_hash(lp, salt)
+        c["login_mustchange"] = bool(d.get("mustChange", True))
+
     if fresh:
         c["added"] = datetime.datetime.now().strftime("%Y-%m-%d")
 
@@ -743,6 +756,83 @@ def next_number(cid, req):
     return {"ok": True, "numbers": made, "next": nums[-1] + 1}
 
 
+def client_login(cid, req):
+    """Client ka software login server se verify. Admin ne set kiya ho tabhi."""
+    c = load_clients().get(cid)
+    if not c:
+        return {"ok": False, "msg": "This account is not set up. Contact your provider."}
+    if not c.get("active", True):
+        return {"ok": False, "msg": "This account is switched off. Contact your provider."}
+    lu = str(req.get("user") or "").strip().lower()
+    lp = str(req.get("pass") or "")
+    stored_user = c.get("login_user", "")
+    stored_hash = c.get("login_hash", "")
+    stored_salt = c.get("login_salt", "")
+    # agar admin ne login set nahi kiya -> access nahi (aap ka rule)
+    if not stored_user or not stored_hash:
+        return {"ok": False, "msg": "No login has been set up for this account by the administrator."}
+    if lu != stored_user:
+        return {"ok": False, "msg": "Wrong username or password."}
+    if admin_hash(lp, stored_salt) != stored_hash:
+        return {"ok": False, "msg": "Wrong username or password."}
+    return {"ok": True, "user": stored_user,
+            "mustChange": bool(c.get("login_mustchange", False)),
+            "company": c.get("name", "")}
+
+
+def client_change_pass(cid, req):
+    """Client apna password change kare (login ke baad)."""
+    c = load_clients().get(cid)
+    if not c:
+        return {"ok": False, "msg": "Account not found."}
+    old = str(req.get("old") or "")
+    new = str(req.get("new") or "")
+    if len(new) < 4:
+        return {"ok": False, "msg": "New password must be at least 4 characters."}
+    if admin_hash(old, c.get("login_salt", "")) != c.get("login_hash", ""):
+        return {"ok": False, "msg": "Current password is wrong."}
+    clients = load_clients()
+    salt = secrets.token_hex(8)
+    clients[cid]["login_salt"] = salt
+    clients[cid]["login_hash"] = admin_hash(new, salt)
+    clients[cid]["login_mustchange"] = False
+    save_clients(clients)
+    return {"ok": True}
+
+
+def fulldata_save(cid, req):
+    """Client ka POORA data server par save (users, company, invoices, sab)."""
+    data = req.get("data")
+    if not isinstance(data, dict):
+        return {"ok": False, "msg": "data must be an object"}
+    with _store_lock:
+        path = os.path.join(DATA_DIR, cid + "_full.json")
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+        except OSError:
+            pass
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, separators=(",", ":"))
+        os.replace(tmp, path)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    return {"ok": True, "saved": True}
+
+
+def fulldata_load(cid, req):
+    """Client ka poora data server se load."""
+    path = os.path.join(DATA_DIR, cid + "_full.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return {"ok": True, "data": data}
+    except (FileNotFoundError, ValueError, OSError):
+        return {"ok": True, "data": None}   # koi data nahi (naya client)
+
+
 def store_push(cid, req):
     """Take what this computer has changed. Newest write wins per record."""
     sent = req.get("records") or {}
@@ -838,6 +928,10 @@ def handle(req):
     if action == "pull":      return store_pull(cid, req)
     if action == "forget":    return store_forget(cid, req)
     if action == "stats":     return store_stats(cid)
+    if action == "savedata":  return fulldata_save(cid, req)
+    if action == "loaddata":  return fulldata_load(cid, req)
+    if action == "clientlogin": return client_login(cid, req)
+    if action == "clientchangepass": return client_change_pass(cid, req)
     if action == "transtypes": return _get(c, FBR_TRANSTYPE_URL, {}, env, "types")
     if action == "rates":     return sale_rates(c, req, env)
     if action == "sro":       return sro_list(c, req, env)
@@ -1004,6 +1098,14 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
     <div class="help">This must match what is typed on that company's FBR link
      screen.</div></div>
 
+   <div style="border-top:1px solid #e2e8f0;margin:16px 0 8px;padding-top:14px;font-weight:600;color:#1C2E4A">Software Login (client uses this to sign in)</div>
+   <div class="field"><label>Login username</label>
+    <input type="text" id="fLoginUser" placeholder="e.g. matts">
+    <div class="help">The username the client types to sign in to the software.</div></div>
+   <div class="field"><label>Login password</label>
+    <input type="text" id="fLoginPass" placeholder="set an initial password">
+    <div class="help">The client signs in with this, then changes it. Without a login set here, the client cannot access the software.</div></div>
+
    <div class="field"><label style="display:flex;align-items:center;gap:8px;
      font-weight:400;font-size:13.5px">
      <input type="checkbox" id="fActive" checked style="width:auto">
@@ -1139,7 +1241,7 @@ function loadList(){
 function openForm(){
   EDITING = null;
   $('formTitle').textContent = 'Add a company';
-  ['fName','fId','fNtn','fSandbox','fProd','fSecret'].forEach(function(f){
+  ['fName','fId','fNtn','fSandbox','fProd','fSecret','fLoginUser','fLoginPass'].forEach(function(f){
     $(f).value = ''; });
   $('fActive').checked = true;
   $('fId').disabled = false;
@@ -1179,7 +1281,7 @@ function saveClient(){
     ntn: $('fNtn').value,
     sandbox: $('fSandbox').value,
     production: $('fProd').value,
-    secret: $('fSecret').value,
+    secret: $('fSecret').value, loginUser: $('fLoginUser')?$('fLoginUser').value:'', loginPass: $('fLoginPass')?$('fLoginPass').value:'',
     active: $('fActive').checked
   }}).then(function(d){
     if(!d.ok) return say(d.msg, 'bad');

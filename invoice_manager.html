@@ -464,7 +464,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 11.1 · FBR Logo · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 12.1 · Cloud Login · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -521,7 +521,7 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="sidebar-foot">
       <div id="sbUser" style="margin-bottom:7px"></div>
       <button onclick="doLogout()">Sign out</button>
-      <div class="sb-ver">Invoice Manager v11.1</div>
+      <div class="sb-ver">Invoice Manager v12.1</div>
     </div>
   </aside>
 
@@ -1378,7 +1378,49 @@ function load(){
     });
   } catch(e){ console.error('Could not read saved data', e); }
 }
-function save(){ sSet(KEY, JSON.stringify(DB)); }
+function save(){
+  sSet(KEY, JSON.stringify(DB));   // local (fast, offline backup)
+  saveToServer();                   // server (central cloud)
+}
+
+/* Server par data save (debounced) - central cloud */
+var _saveTimer = null;
+function saveToServer(){
+  if(!DB.fbr || !DB.fbr.url || !DB.fbr.client) return;  // bridge set nahi
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(function(){
+    try {
+      callBridge({ action:'savedata', data: DB })
+        .then(function(d){ if(d && d.ok){ /* saved */ } })
+        .catch(function(){ /* offline - localStorage backup hai */ });
+    } catch(e){}
+  }, 1500);  // 1.5s baad (bar bar na ho)
+}
+
+/* Server se data load - login/connect ke waqt */
+function loadFromServer(cb){
+  if(!DB.fbr || !DB.fbr.url || !DB.fbr.client){ if(cb)cb(false); return; }
+  try {
+    callBridge({ action:'loaddata' })
+      .then(function(d){
+        if(d && d.ok && d.data){
+          // server ka data merge (server jeetta - central)
+          var s = d.data;
+          if(s.company) DB.company = Object.assign(DB.company, s.company);
+          if(s.clients) DB.clients = s.clients;
+          if(s.items) DB.items = s.items;
+          if(s.invoices) DB.invoices = s.invoices;
+          if(s.users) DB.users = s.users;
+          if(s.sec) DB.sec = s.sec;
+          if(s.audit) DB.audit = s.audit;
+          Object.keys(s).forEach(function(k){ if(!(k in DB)) DB[k] = s[k]; });
+          sSet(KEY, JSON.stringify(DB));  // local backup update
+          if(cb)cb(true);
+        } else { if(cb)cb(false); }
+      })
+      .catch(function(){ if(cb)cb(false); });
+  } catch(e){ if(cb)cb(false); }
+}
 function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
 /* ---------- HELPERS ---------- */
@@ -1610,6 +1652,15 @@ function saveFbr(){
   DB.fbr.scn=$('fbScn').value.trim(); DB.fbr.key=$('fbKey').value;
   if($('fbClient')) DB.fbr.client = $('fbClient').value.trim().toLowerCase();
   save(); toast('FBR settings saved','good');
+  // Connect hote hi server se data load (central cloud - kahin se same)
+  loadFromServer(function(ok){
+    if(ok){
+      toast('Loaded your data from the server','good');
+      if(typeof paintBrand==='function') paintBrand();
+      if(typeof fillBuyerList==='function') fillBuyerList();
+      if(typeof go==='function') go('dash');
+    }
+  });
 }
 function testFbr(){
   var s = $('fbStat');
@@ -2816,17 +2867,51 @@ function doLogin(){
   var p = $('lgPass').value;
   var err = $('lgErr');
   if(!u || !p){ err.textContent = 'Enter your username and password.'; return; }
-  // Remember me - save/clear
+  // Remember me
   try {
     if($('lgRemember') && $('lgRemember').checked){
       localStorage.setItem('rememberUser', u);
-      localStorage.setItem('rememberPass', btoa(p));  // basic encode
+      localStorage.setItem('rememberPass', btoa(p));
     } else {
       localStorage.removeItem('rememberUser');
       localStorage.removeItem('rememberPass');
     }
   } catch(e){}
 
+  // CLOUD LOGIN: bridge set ho to server se verify (admin ne login set kiya)
+  if(DB.fbr && DB.fbr.url && DB.fbr.client){
+    err.textContent = 'Signing in\u2026';
+    callBridge({ action:'clientlogin', user:u, pass:p })
+      .then(function(d){
+        if(d && d.ok){
+          loadFromServer(function(){
+            ME = { user:d.user, name:d.user, role:'admin' };
+            if(!DB.users || !DB.users.length){
+              DB.users = [{ id:uid(), user:d.user, name:d.user, role:'admin', active:true, salt:'', hash:'' }];
+            }
+            enterAppCloud();
+            if(d.mustChange){ setTimeout(function(){ toast('Please change your password'); }, 800); }
+          });
+        } else { err.textContent = (d && d.msg) || 'Wrong username or password.'; }
+      })
+      .catch(function(){ localLoginFallback(u, p, err); });
+    return;
+  }
+  localLoginFallback(u, p, err);
+}
+
+function enterAppCloud(){
+  var ls = document.getElementById('loginScreen') || document.getElementById('login');
+  if(ls) ls.style.display = 'none';
+  var app = document.getElementById('app');
+  if(app) app.style.display = 'block';
+  if(typeof applyRole==='function') applyRole();
+  if(typeof paintBrand==='function') paintBrand();
+  if(typeof fillBuyerList==='function') fillBuyerList();
+  if(typeof go==='function') go('dash');
+}
+
+function localLoginFallback(u, p, err){
   var rec = DB.users.find(function(x){ return x.user.toLowerCase() === u; });
   if(!rec){ err.textContent = 'No user by that name.'; return; }
   if(!rec.active){ err.textContent = 'This account has been switched off. Ask an administrator.'; return; }
