@@ -762,8 +762,8 @@ def next_number(cid, req):
     return {"ok": True, "numbers": made, "next": nums[-1] + 1}
 
 
-# Session store - login token -> client id (memory, restart par clear)
-_sessions = {}   # token -> {cid, at}
+# Client login sessions - ADMIN _sessions se ALAG (conflict fix)
+_client_sessions = {}   # token -> {cid, at}
 
 def client_login(cid, req):
     """Client login verify. Username SE client dhoondo (client id ki zaroorat nahi).
@@ -794,7 +794,7 @@ def client_login(cid, req):
 
     # login sahi - session token banao (shared secret ki jagah)
     tok = secrets.token_urlsafe(24)
-    _sessions[tok] = {"cid": found_cid, "at": time.time()}
+    _client_sessions[tok] = {"cid": found_cid, "at": time.time()}
     return {"ok": True, "user": lu, "client": found_cid,
             "session": tok,
             "mustChange": bool(c.get("login_mustchange", False)),
@@ -812,8 +812,8 @@ def client_login(cid, req):
 
 
 def session_client(tok):
-    """Session token se client nikaalo."""
-    s = _sessions.get(tok)
+    """Client session token se cid nikaalo (har client ALAG)."""
+    s = _client_sessions.get(tok)
     if not s:
         return None
     return s.get("cid")
