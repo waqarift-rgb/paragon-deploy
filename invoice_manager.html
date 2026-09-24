@@ -13,27 +13,27 @@
    ============================================================ */
 :root{
   /* ink */
-  --ink:#16202B;
-  --ink-2:#55606D;
-  --ink-3:#8794A3;
+  --ink:#0F172A;
+  --ink-2:#475569;
+  --ink-3:#94A3B8;
   /* paper */
-  --bg:#F2F4F7;
+  --bg:#F1F5F9;
   --surface:#FFFFFF;
   --surface-2:#F8FAFC;
   /* rules */
-  --line:#D8DDE4;
-  --line-soft:#E9EDF1;
+  --line:#E2E8F0;
+  --line-soft:#F1F5F9;
   /* seal green — the one strong colour */
-  --teal:#1F5FCC;
-  --teal-2:#1A52B0;
-  --teal-soft:#E7EFFC;
+  --teal:#2563EB;
+  --teal-2:#1D4ED8;
+  --teal-soft:#DBEAFE;
   /* brass — marks, seals, the active spine */
-  --brass:#4C8DF6;
-  --brass-soft:#EEF4FE;
+  --brass:#3B82F6;
+  --brass-soft:#EFF6FF;
   /* states */
-  --green:#17794B;   --green-soft:#E4F3EB;
-  --amber:#94620F;   --amber-soft:#FCF0DC;
-  --red:#C0322C;     --red-soft:#FBEAE8;
+  --green:#059669;   --green-soft:#D1FAE5;
+  --amber:#D97706;   --amber-soft:#FEF3C7;
+  --red:#DC2626;     --red-soft:#FEE2E2;
   /* faces */
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,"Times New Roman",serif;
@@ -422,6 +422,27 @@ tbody tr:hover{background:var(--surface-2)}
   .content,.topbar{padding-left:16px;padding-right:16px}
   .g4{grid-template-columns:1fr}
 }
+
+/* password eye toggle */
+.pw-wrap{position:relative;display:block}
+.pw-wrap input{padding-right:40px !important;width:100%}
+.pw-eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  background:none;border:none;cursor:pointer;padding:4px 6px;color:var(--ink-3);
+  font-size:15px;line-height:1;border-radius:4px;transition:color .15s}
+.pw-eye:hover{color:var(--teal)}
+
+/* toggle switch */
+.tgl{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+.tgl input{opacity:0;width:0;height:0}
+.tgl-s{position:absolute;cursor:pointer;inset:0;background:var(--line);border-radius:24px;transition:.2s}
+.tgl-s:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.tgl input:checked+.tgl-s{background:var(--teal)}
+.tgl input:checked+.tgl-s:before{transform:translateX(20px)}
+.set-row{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid var(--line-soft)}
+.set-row:last-child{border-bottom:none}
+.set-row .set-txt{flex:1}
+.set-row .set-t{font-size:13.5px;font-weight:500;color:var(--ink)}
+.set-row .set-d{font-size:12px;color:var(--ink-3);margin-top:2px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -437,7 +458,7 @@ tbody tr:hover{background:var(--surface-2)}
       <div class="lb-rule"></div>
       <div class="lb-lines" id="lbLines"></div>
       <div class="lb-foot" id="lbFoot">FBR-ready sales tax invoicing</div>
-      <div style="margin-top:10px;font-size:11px;color:#8896a5;font-family:monospace">Version 9.5 · FBR Banner · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:#8896a5;font-family:monospace">Version 10.8 · Remember Me · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -447,6 +468,9 @@ tbody tr:hover{background:var(--surface-2)}
       <input id="lgUser" type="text" autocomplete="username" autocapitalize="off" spellcheck="false">
       <label for="lgPass">Password</label>
       <input id="lgPass" type="password" autocomplete="current-password">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;margin:2px 0 6px;cursor:pointer;color:var(--ink-2)">
+        <input type="checkbox" id="lgRemember" style="width:auto;margin:0"> Remember me on this device
+      </label>
       <div class="login-err" id="lgErr"></div>
       <button class="btn" id="lgBtn" style="width:100%;justify-content:center" onclick="doLogin()">Sign in</button>
       <div class="login-hint" id="lgHint">
@@ -488,7 +512,7 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="sidebar-foot">
       <div id="sbUser" style="margin-bottom:7px"></div>
       <button onclick="doLogout()">Sign out</button>
-      <div class="sb-ver">Invoice Manager v4.0</div>
+      <div class="sb-ver">Invoice Manager v10.8</div>
     </div>
   </aside>
 
@@ -522,32 +546,32 @@ tbody tr:hover{background:var(--surface-2)}
           </div>
         </div>
         <div class="grid g4" style="margin-bottom:18px">
-          <div class="stat"><div class="k">Invoices this month</div><div class="v" id="stMonth">0</div>
+          <div class="stat"><div class="k">Invoices This Month</div><div class="v" id="stMonth">0</div>
             <div class="m" id="stMonthLbl"></div></div>
-          <div class="stat"><div class="k">Sales this month</div><div class="v" id="stSales">0</div>
+          <div class="stat"><div class="k">Sales This Month</div><div class="v" id="stSales">0</div>
             <div class="m" id="stSalesLbl"></div></div>
-          <div class="stat"><div class="k">Sales tax charged</div><div class="v" id="stTax">0</div>
+          <div class="stat"><div class="k">Sales Tax Collected</div><div class="v" id="stTax">0</div>
             <div class="m">this month</div></div>
-          <div class="stat"><div class="k">Average invoice</div><div class="v" id="stAvg">0</div>
+          <div class="stat"><div class="k">Average Invoice Value</div><div class="v" id="stAvg">0</div>
             <div class="m">this month</div></div>
         </div>
 
         <div class="grid g2" style="align-items:start;margin-bottom:18px">
           <div class="card">
-            <div class="card-hd"><h2>Sales over twelve months</h2>
+            <div class="card-hd"><h2>Sales — Last 12 Months</h2>
               <div class="spacer"></div>
               <span style="font-size:12px;color:var(--ink-3)">excluding sales tax</span></div>
             <div class="card-bd"><div id="dashChart"></div></div>
           </div>
           <div class="card">
-            <div class="card-hd"><h2>Where your invoices stand with FBR</h2></div>
+            <div class="card-hd"><h2>FBR Submission Status</h2></div>
             <div class="card-bd"><div id="dashFbr"></div></div>
           </div>
         </div>
 
         <div class="grid g2" style="align-items:start">
           <div class="card">
-            <div class="card-hd"><h2>Recent invoices</h2><div class="spacer"></div>
+            <div class="card-hd"><h2>Recent Invoices</h2><div class="spacer"></div>
               <button class="btn sm ghost" onclick="go('reg')">See all</button></div>
             <div class="tbl-wrap"><table>
               <thead><tr><th>Invoice #</th><th>Date</th><th>Buyer</th><th class="num">Total</th><th>FBR</th></tr></thead>
@@ -555,7 +579,7 @@ tbody tr:hover{background:var(--surface-2)}
             </table></div>
           </div>
           <div class="card">
-            <div class="card-hd"><h2>Busiest buyers this year</h2></div>
+            <div class="card-hd"><h2>Top Buyers This Year</h2></div>
             <div class="card-bd"><div id="dashBuyers"></div></div>
           </div>
         </div>
@@ -568,7 +592,7 @@ tbody tr:hover{background:var(--surface-2)}
           <div class="card-bd">
             <div class="grid g4">
               <div class="field"><label>Invoice number</label>
-                <input id="fNo" type="text"><div class="help">Auto — you can overwrite</div></div>
+                <input id="fNo" type="text"><div class="help">Generated automatically — you can change it</div></div>
               <div class="field"><label>Invoice date <span class="req">*</span></label><input id="fDate" type="date"></div>
               <div class="field"><label>Document type</label>
                 <select id="fType">
@@ -576,7 +600,7 @@ tbody tr:hover{background:var(--surface-2)}
                   <option>Debit Note</option>
                   <option>Credit Note</option>
                 </select></div>
-              <div class="field"><label>Original invoice ref</label>
+              <div class="field"><label>Original Invoice Reference</label>
                 <input id="fRef" type="text" placeholder="For debit / credit note"></div>
             </div>
 
@@ -613,11 +637,11 @@ tbody tr:hover{background:var(--surface-2)}
             </table></div>
             <div style="margin-top:10px;display:flex;gap:8px">
               <button class="btn sm ghost" onclick="addLine()">+ Add line</button>
-              <button class="btn sm ghost" onclick="openPicker()">Pick from products</button>
+              <button class="btn sm ghost" onclick="openPicker()">Select from Products</button>
             </div>
 
             <div class="totals">
-              <div><span>Value excluding tax</span><span class="num" id="tSub">0.00</span></div>
+              <div><span>Value (Excluding Tax)</span><span class="num" id="tSub">0.00</span></div>
               <div><span>Sales tax</span><span class="num" id="tTax">0.00</span></div>
               <div><span>Further tax</span><span class="num" id="tFur">0.00</span></div>
               <div><span>Discount</span><span class="num" id="tDis">0.00</span></div>
@@ -631,17 +655,17 @@ tbody tr:hover{background:var(--surface-2)}
               <div class="field"><label>Purchase order / reference</label><input id="fPo" type="text"></div>
               <div class="field"><label>Payment terms</label><input id="fTerms" type="text" placeholder="e.g. 30 days"></div>
             </div>
-            <div class="field" style="margin-top:14px"><label>Notes on invoice</label>
+            <div class="field" style="margin-top:14px"><label>Invoice Notes</label>
               <textarea id="fNotes" rows="2"></textarea></div>
 
             <div class="section-rule">FBR digital invoicing</div>
             <div class="grid g3">
               <div class="field"><label>Sale type</label>
                 <select id="fSaleType"></select>
-                <div class="help">Applies to every line unless changed per line</div></div>
+                <div class="help">Applies to all line items unless changed individually</div></div>
               <div class="field"><label>Scenario</label>
                 <select id="fScenario"></select>
-                <div class="help">Sandbox testing only</div></div>
+                <div class="help">Sandbox testing mode</div></div>
               <div class="field" style="justify-content:flex-end">
                 <button class="btn ghost" onclick="showPayload()">See the JSON going to FBR</button></div>
             </div>
@@ -650,10 +674,10 @@ tbody tr:hover{background:var(--surface-2)}
         </div>
         <div style="margin-top:16px;display:flex;gap:10px">
           <button class="btn" onclick="saveInvoice()">Save invoice</button>
-          <button class="btn ghost" onclick="saveInvoice(true)">Save and print</button>
-          <button class="btn ghost" onclick="resetInvoice()">Clear form</button>
+          <button class="btn ghost" onclick="saveInvoice(true)">Save & Print</button>
+          <button class="btn ghost" onclick="resetInvoice()">Clear Form</button>
           <div style="flex:1"></div>
-          <button class="btn ghost" id="btnFbrCheck" onclick="validateFbr()">Check with FBR</button> <button class="btn ghost" id="btnHsFinder" onclick="hsFinder()" title="Find which sale type this HS works for">Which sale type?</button>
+          <button class="btn ghost" id="btnFbrCheck" onclick="validateFbr()">Validate with FBR</button> <button class="btn ghost" id="btnHsFinder" onclick="hsFinder()" title="Find which sale type this HS works for">Which sale type?</button>
           <button class="btn" id="btnFbrSend" onclick="sendToFbr()">Submit to FBR</button>
         </div>
       </div>
@@ -661,7 +685,7 @@ tbody tr:hover{background:var(--surface-2)}
       <!-- REGISTER -->
       <div class="page" id="pg-reg">
         <div class="toolbar">
-          <input id="rqSearch" type="search" placeholder="Search number, buyer, PO…" oninput="drawReg()" style="min-width:230px">
+          <input id="rqSearch" type="search" placeholder="Search by invoice number, buyer, or PO…" oninput="drawReg()" style="min-width:230px">
           <select id="rqFbr" onchange="drawReg()">
             <option value="">All FBR states</option>
             <option value="sent">Sent to FBR</option>
@@ -672,9 +696,9 @@ tbody tr:hover{background:var(--surface-2)}
           <input id="rqFrom" type="date" onchange="drawReg()" title="From date">
           <input id="rqTo" type="date" onchange="drawReg()" title="To date">
           <div class="spacer"></div>
-          <button class="btn sm ghost" onclick="exportCsv()">Export to Excel</button>
-          <button class="btn sm ghost" onclick="openImport()">Import from spreadsheet</button>
-          <button class="btn sm" onclick="bulkSend()">Submit pending to FBR</button>
+          <button class="btn sm" onclick="downloadAllMenu()">Download all</button>
+          <button class="btn sm ghost" onclick="openImport()">Import</button>
+          <button class="btn sm" onclick="bulkSend()">Submit all pending to FBR</button>
         </div>
         <div class="card"><div class="tbl-wrap"><table>
           <thead><tr>
@@ -700,6 +724,29 @@ tbody tr:hover{background:var(--surface-2)}
           <button class="btn sm" onclick="rpExport()">Export to Excel</button>
         </div>
         <div id="rpTotals" style="margin-bottom:18px"></div>
+
+        <!-- Sales Tax Return Summary (IRIS-ready) -->
+        <div class="card" style="margin-bottom:16px;border:1px solid #C7DDF5">
+          <div class="card-hd" style="background:linear-gradient(100deg,#EFF6FF,#F0F7FF)">
+            <h2 style="color:#1B4F9C">Sales Tax Return Summary</h2>
+            <div class="spacer"></div>
+            <span style="font-size:12px;color:#1B4F9C">Ready to file on IRIS</span></div>
+          <div class="card-bd">
+            <div id="rpReturn"></div>
+            <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+              <a href="https://iris.fbr.gov.pk/" target="_blank" rel="noopener"
+                 class="btn sm" style="text-decoration:none">File on IRIS &rarr;</a>
+              <button class="btn sm ghost" onclick="rpReturnExport()">Export Return Summary</button>
+              <button class="btn sm ghost" onclick="rpReturnPrint()">Print</button>
+            </div>
+            <div style="margin-top:12px;font-size:11px;color:var(--ink-3);line-height:1.6;
+                 background:#FFF8E6;border:1px solid #F0D89A;border-radius:6px;padding:10px 12px">
+              These totals are calculated from your invoices to help you file faster. Always check them
+              against your records before submitting. This is a facilitation tool &mdash; the final
+              responsibility for the return rests with the taxpayer.
+            </div>
+          </div>
+        </div>
         <div class="card" style="margin-bottom:16px">
           <div class="card-hd"><h2>By tax rate</h2><div class="spacer"></div>
             <span style="font-size:12px;color:var(--ink-3)">what your accountant needs</span></div>
@@ -755,7 +802,7 @@ tbody tr:hover{background:var(--surface-2)}
           <div class="card-bd">
             <div class="grid g2">
               <div class="field"><label>Company name <span class="req">*</span></label><input id="coName" type="text"></div>
-              <div class="field"><label>Business nature</label><input id="coNature" type="text" placeholder="e.g. Trading, Services"></div>
+              <div class="field"><label>Business nature</label><input id="coNature" type="text" placeholder="e.g. Trading, Services, Manufacturing"></div>
             </div>
             <div class="field" style="margin-top:14px"><label>Address</label><input id="coAddr" type="text"></div>
             <div class="grid g3" style="margin-top:14px">
@@ -776,15 +823,15 @@ tbody tr:hover{background:var(--surface-2)}
                 <div class="help">Example: PCS-122</div></div>
               <div class="field"><label>Next number</label><input id="coNext" type="number" min="1" value="1"></div>
               <div class="field"><label>Digits</label><input id="coPad" type="number" min="1" max="8" value="4">
-                <div class="help">4 gives 0001</div></div>
-              <div class="field"><label>Amount in words</label>
+                <div class="help">Example: 4 produces 0001</div></div>
+              <div class="field"><label>Amount in Words</label>
                 <select id="coWords">
                   <option value="intl">One hundred thousand only</option>
                   <option value="intl-rs">Rupees one hundred thousand only</option>
                   <option value="pk">One lac only</option>
                   <option value="pk-rs">Rupees one lac only</option>
                 </select>
-                <div class="help">How the total is written out on the invoice</div></div>
+                <div class="help">How the total amount appears in words on the invoice</div></div>
               <div class="field"><label>Default HS code</label>
                 <input id="coHs" type="text" placeholder="8443.9990">
                 <div class="help" id="coHsNote"></div></div>
@@ -797,6 +844,85 @@ tbody tr:hover{background:var(--surface-2)}
             </div>
             <div style="margin-top:8px;font-size:12.5px;color:var(--ink-2)">
               Next invoice will be numbered <b id="coPreview" style="font-family:var(--mono)"></b>
+            </div>
+
+            <div class="section-rule">Invoice Defaults &amp; Automation</div>
+            <div style="margin-top:4px">
+
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Automatic tax rate</div>
+                  <div class="set-d">When on, the tax rate comes from FBR based on the HS code — only valid rates can be picked, so mistakes are prevented. When off, you type the rate yourself.</div></div>
+                <label class="tgl"><input type="checkbox" id="coAutoRate"><span class="tgl-s"></span></label>
+              </div>
+
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Use full FBR tariff</div>
+                  <div class="set-d">Search the complete FBR HS code list (7,808 codes) instead of the common ones. A code FBR would reject cannot be typed by mistake.</div></div>
+                <label class="tgl"><input type="checkbox" id="coFullTariff"><span class="tgl-s"></span></label>
+              </div>
+
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Verify buyer with FBR automatically</div>
+                  <div class="set-d">When you enter a buyer NTN, check their registration and active/inactive status with FBR right away.</div></div>
+                <label class="tgl"><input type="checkbox" id="coAutoVerify"><span class="tgl-s"></span></label>
+              </div>
+
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Require buyer NTN</div>
+                  <div class="set-d">Do not allow an invoice to be saved for a registered buyer without an NTN.</div></div>
+                <label class="tgl"><input type="checkbox" id="coReqNtn"><span class="tgl-s"></span></label>
+              </div>
+
+              <div class="grid g3" style="margin-top:16px">
+                <div class="field"><label>Default sale type</label>
+                  <select id="coDefSaleType"></select>
+                  <div class="help">Pre-selected on every new invoice</div></div>
+                <div class="field"><label>Default unit</label>
+                  <select id="coDefUnit"></select>
+                  <div class="help">Pre-filled on every new line</div></div>
+                <div class="field"><label>Default tax rate (when automatic is off)</label>
+                  <input id="coDefTax" type="number" step="0.01" placeholder="18">
+                  <div class="help">Used when automatic tax rate is off</div></div>
+              </div>
+
+              <div class="field" style="margin-top:12px"><label>Default payment terms</label>
+                <input id="coDefTerms" type="text" placeholder="e.g. 30 days from invoice date">
+                <div class="help">Pre-filled on every new invoice</div></div>
+
+            </div>
+
+            <div class="section-rule">Commercial Invoice</div>
+            <div style="margin-top:4px">
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Enable commercial invoice</div>
+                  <div class="set-d">Print a commercial invoice alongside the sales tax invoice. It uses the same buyer and items — no re-typing.</div></div>
+                <label class="tgl"><input type="checkbox" id="coCiOn"><span class="tgl-s"></span></label>
+              </div>
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Both on one file</div>
+                  <div class="set-d">Print the commercial invoice and the sales tax invoice together as one document.</div></div>
+                <label class="tgl"><input type="checkbox" id="coCiBoth"><span class="tgl-s"></span></label>
+              </div>
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Hide tax details on commercial invoice</div>
+                  <div class="set-d">Show only quantity, rate and amount — no tax breakdown — on the commercial copy.</div></div>
+                <label class="tgl"><input type="checkbox" id="coCiHideTax" checked><span class="tgl-s"></span></label>
+              </div>
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Show HS code on commercial invoice</div>
+                  <div class="set-d">Include the HS code column on the commercial copy. Turn off to leave it out.</div></div>
+                <label class="tgl"><input type="checkbox" id="coCiShowHs"><span class="tgl-s"></span></label>
+              </div>
+              <div class="grid g2" style="margin-top:14px">
+                <div class="field"><label>Commercial invoice title</label>
+                  <input id="coCiTitle" type="text" placeholder="COMMERCIAL INVOICE">
+                  <div class="help">Heading printed on the commercial copy</div></div>
+                <div class="field"><label>Lock settings with a password</label>
+                  <input id="coCiLock" type="password" placeholder="Leave blank for no lock">
+                  <div class="help">Once set, these commercial settings cannot be changed without this password</div></div>
+              </div>
+              <div class="field" style="margin-top:12px"><label>Commercial invoice footer / terms</label>
+                <textarea id="coCiFooter" rows="2" placeholder="e.g. Goods once sold will not be returned. Subject to Karachi jurisdiction."></textarea></div>
             </div>
 
             <div class="section-rule">Advance income tax · 236G and 236H</div>
@@ -921,7 +1047,7 @@ tbody tr:hover{background:var(--surface-2)}
             </div>
             <div class="field"><label>Bridge URL</label>
               <input id="fbUrl" type="text" placeholder="https://script.google.com/macros/s/…/exec">
-              <div class="help">From your Apps Script deployment</div></div>
+              <div class="help">Your server bridge address</div></div>
             <div class="grid g2" style="margin-top:14px">
               <div class="field"><label>Environment</label>
                 <select id="fbEnv">
@@ -930,15 +1056,15 @@ tbody tr:hover{background:var(--surface-2)}
                 </select></div>
               <div class="field"><label>Scenario ID</label>
                 <input id="fbScn" type="text" placeholder="SN001">
-                <div class="help">Sandbox testing only. Leave blank when live.</div></div>
+                <div class="help">Sandbox testing mode. Leave blank when live.</div></div>
             </div>
             <div class="grid g2" style="margin-top:14px">
               <div class="field"><label>Client ID</label>
                 <input id="fbClient" type="text" placeholder="paragon" autocapitalize="off">
-                <div class="help">Given to you with the bridge URL</div></div>
+                <div class="help">Provided with your bridge access</div></div>
               <div class="field"><label>Shared secret</label>
                 <input id="fbKey" type="password">
-                <div class="help">Your own password for the bridge</div></div>
+                <div class="help">Your bridge access password</div></div>
             </div>
             <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
               <button class="btn" onclick="saveFbr()">Save settings</button>
@@ -966,6 +1092,7 @@ tbody tr:hover{background:var(--surface-2)}
           <div style="font-size:13px;color:var(--ink-2)">
             Everyone signs in with their own name and password. Actions are recorded against them.</div>
           <div class="spacer"></div>
+          <button class="btn ghost" onclick="openFeatures()">Feature Control</button>
           <button class="btn" onclick="openUser()">+ Add user</button>
         </div>
         <div class="card"><div class="tbl-wrap"><table>
@@ -993,7 +1120,7 @@ tbody tr:hover{background:var(--surface-2)}
                   <option value="5">5 attempts</option>
                   <option value="10">10 attempts</option>
                 </select>
-                <div class="help">Locked for one minute, then doubles</div></div>
+                <div class="help">Account locks for one minute after failed attempts</div></div>
             </div>
           </div>
         </div>
@@ -1012,7 +1139,7 @@ tbody tr:hover{background:var(--surface-2)}
             <option value="setup">Settings</option>
           </select>
           <div class="spacer"></div>
-          <button class="btn sm ghost" onclick="exportAudit()">Export log</button>
+          <button class="btn sm ghost" onclick="exportAudit()">Export Log</button>
         </div>
         <div class="card"><div class="tbl-wrap"><table>
           <thead><tr><th style="width:150px">When</th><th style="width:130px">User</th>
@@ -1044,8 +1171,8 @@ tbody tr:hover{background:var(--surface-2)}
                   <b>Save As &rarr; CSV</b>. Import that file here. Two columns are enough:
                   the code and the description.
                 </div>
-                <input type="file" id="hsFile" accept=".csv,.txt" style="display:none" onchange="hsImport(this)">
-                <button class="btn" onclick="document.getElementById('hsFile').click()">Import a CSV file</button>
+                <input type="file" id="hsFile" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="hsImport(this)">
+                <button class="btn" onclick="document.getElementById('hsFile').click()">Import File</button>
               </div>
               <div>
                 <div style="font-size:13.5px;font-weight:600;margin-bottom:7px">Straight from FBR</div>
@@ -1053,7 +1180,7 @@ tbody tr:hover{background:var(--surface-2)}
                   Once your token is in the bridge, pull the list from FBR's own reference service.
                   That way it is always their list, never a copy that goes stale.
                 </div>
-                <button class="btn ghost" onclick="hsFetch()">Download from FBR</button>
+                <button class="btn ghost" onclick="hsFetch()">Sync from FBR</button>
                 <span id="hsFetchMsg" style="font-size:12.5px;color:var(--ink-3);margin-left:10px"></span>
               </div>
             </div>
@@ -1065,7 +1192,7 @@ tbody tr:hover{background:var(--surface-2)}
           <div class="spacer"></div>
           <button class="btn sm" onclick="hsLoadFbr()">Load FBR's full tariff</button>
           <button class="btn sm ghost" onclick="hsAddManual()">+ Add a code</button>
-          <button class="btn sm ghost" onclick="hsExport()">Export list</button>
+          <button class="btn sm ghost" onclick="hsExport()">Export List</button>
           <button class="btn sm danger" onclick="hsClear()">Remove imported list</button>
         </div>
         <div class="card"><div class="tbl-wrap"><table>
@@ -1087,7 +1214,7 @@ tbody tr:hover{background:var(--surface-2)}
                 Downloads land in your normal Downloads folder.
               </p>
               <div style="display:flex;gap:9px;flex-wrap:wrap">
-                <button class="btn" onclick="runBackup('manual')">Back up everything</button>
+                <button class="btn" onclick="runBackup('manual')">Back Up All Data</button>
                 <button class="btn ghost" onclick="saveXlsx()">Excel workbook</button>
                 <button class="btn ghost" onclick="saveCsvSet()">CSV files</button>
                 <button class="btn ghost" onclick="backup()">Restore file only</button>
@@ -1134,7 +1261,7 @@ tbody tr:hover{background:var(--surface-2)}
                   <span style="color:var(--ink-3);font-size:12px" id="bkFolderName">No folder chosen yet</span></span>
               </label>
               <div style="margin:-4px 0 14px 27px;display:flex;gap:8px">
-                <button class="btn sm ghost" onclick="pickFolder()">Choose folder</button>
+                <button class="btn sm ghost" onclick="pickFolder()">Choose Folder</button>
                 <button class="btn sm ghost" onclick="testFolder()">Test write</button>
               </div>
               <label style="display:flex;gap:9px;align-items:flex-start;margin-bottom:10px;cursor:pointer">
@@ -1156,7 +1283,7 @@ tbody tr:hover{background:var(--surface-2)}
         <div class="card" style="max-width:1000px;margin-top:16px">
           <div class="card-bd">
             <div class="section-rule">Danger zone</div>
-            <button class="btn danger" onclick="wipe()">Erase all data</button>
+            <button class="btn danger" onclick="wipe()">Delete All Data</button>
             <div style="font-size:12px;color:var(--ink-3);margin-top:7px">
               Removes every invoice, buyer and product. Back up first.</div>
           </div>
@@ -1514,7 +1641,7 @@ function drawClients(){
       '<td><button class="btn sm ghost" onclick="openClient(\''+c.id+'\')">Edit</button> '+
       '<button class="btn sm danger" onclick="delClient(\''+c.id+'\')">Delete</button></td></tr>';
   }).join('') : '<tr><td colspan="7"><div class="empty"><p>No buyers yet.</p>'+
-    '<button class="btn" onclick="openClient()">Add your first buyer</button></div></td></tr>';
+    '<button class="btn" onclick="openClient()">Add Your First Buyer</button></div></td></tr>';
   $('cntCli').textContent = DB.clients.length || '';
 }
 function openClient(id){
@@ -1563,7 +1690,7 @@ function drawItems(){
       '<td><button class="btn sm ghost" onclick="openItem(\''+i.id+'\')">Edit</button> '+
       '<button class="btn sm danger" onclick="delItem(\''+i.id+'\')">Delete</button></td></tr>';
   }).join('') : '<tr><td colspan="6"><div class="empty"><p>No products yet.</p>'+
-    '<button class="btn" onclick="openItem()">Add your first product</button></div></td></tr>';
+    '<button class="btn" onclick="openItem()">Add Your First Product</button></div></td></tr>';
   $('cntItm').textContent = DB.items.length || '';
 }
 function openItem(id){
@@ -1572,7 +1699,7 @@ function openItem(id){
     '<div>'+fld('miDesc','Description','text',i.desc,'',true)+'</div>'+
     '<div class="grid g4" style="margin-top:14px">'+
       '<div class="field"><label>HS code</label><input id="miHs" type="text" list="hsList" value="'+esc(i.hs||'')+'">'+
-        '<div class="help">Format 1234.5678</div></div>'+
+        '<div class="help">Format: 1234.5678</div></div>'+
       sel('miUnit','Unit of measure',UNITS,i.unit)+
       fld('miRate','Rate','number',i.rate)+
       fld('miTax','Sales tax %','number',i.tax)+
@@ -1807,10 +1934,11 @@ function drawReg(){
         (f.status==='failed'&&f.msg?'<div style="font-size:10.5px;color:var(--red)">'+esc(String(f.msg).slice(0,60))+'</div>':'')+
       '</td>'+
       '<td><button class="btn sm ghost" onclick="printInvoice(\''+v.id+'\')">Print</button> '+
+      ((DB.company.commercial&&DB.company.commercial.on)?'<button class="btn sm ghost" onclick="commercialMenu(\''+v.id+'\')">Commercial ▾</button> ':'')+
       '<button class="btn sm ghost" onclick="editInvoice(\''+v.id+'\')">Edit</button> '+
       '<button class="btn sm danger" onclick="delInvoice(\''+v.id+'\')">Del</button></td></tr>';
   }).join('') : '<tr><td colspan="9"><div class="empty"><p>No invoices match this view.</p>'+
-    '<button class="btn" onclick="newInvoice()">Create an invoice</button></div></td></tr>';
+    '<button class="btn" onclick="newInvoice()">Create Invoice</button></div></td></tr>';
   var t = rows.reduce(function(a,v){return a+v.total;},0);
   $('regFoot').textContent = rows.length + ' invoice(s) · Total ' + money(t);
   $('cntInv').textContent = DB.invoices.length || '';
@@ -1820,6 +1948,86 @@ function drawReg(){
 /* drawDash() is defined further down, in the dashboard module */
 
 /* ---------- PRINT ---------- */
+/* Commercial Invoice - same data, commercial layout, tax hide option */
+/* Commercial menu - with ya without tax (client chune) */
+function commercialMenu(id){
+  modal('Commercial Invoice',
+    '<div style="font-size:13px;color:var(--ink-2);line-height:1.7;margin-bottom:18px">'+
+      'Choose which commercial invoice to print for this sale:'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;gap:12px">'+
+      '<button class="btn" onclick="closeModal();printCommercial(\''+id+'\',false)" style="justify-content:flex-start;padding:14px 16px">'+
+        '<b>Without Tax</b> — goods, quantity, rate and amount only</button>'+
+      '<button class="btn" onclick="closeModal();printCommercial(\''+id+'\',true)" style="justify-content:flex-start;padding:14px 16px">'+
+        '<b>With Tax</b> — includes sales tax and total</button>'+
+    '</div>',
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'}], true);
+}
+
+function printCommercial(id, withTax){
+  var v = DB.invoices.find(function(x){return x.id===id;});
+  if(!v) return;
+  var c = DB.company, ci = c.commercial || {};
+  if(!ci.on){ toast('Enable commercial invoice in Company settings first','bad'); return; }
+
+  // withTax undefined ho to setting se; warna button se (client chune)
+  var hideTax = (withTax === true) ? false : (withTax === false ? true : (ci.hideTax !== false));
+  var showHs = !!ci.showHs;
+  var title = ci.title || 'COMMERCIAL INVOICE';
+  if(!hideTax) title = title + ' (WITH TAX)'; else title = title + '';
+
+  var lines = v.lines.map(function(l,i){
+    return '<tr><td class="c">'+(i+1)+'</td>'+
+      '<td>'+esc(l.desc)+'</td>'+
+      (showHs ? '<td class="c">'+esc(l.hs||'')+'</td>' : '')+
+      '<td class="num">'+money(l.qty)+'</td>'+
+      '<td class="num">'+money(l.rate)+'</td>'+
+      '<td class="num">'+money(hideTax ? l.total : l.excl)+'</td></tr>';
+  }).join('');
+
+  var grand = hideTax ? (v.total + (v.lines.reduce(function(a,l){return a+((l.fbrx&&l.fbrx.further)||0);},0)))
+                      : v.sub;
+
+  var html =
+    '<div class="doc">'+
+      '<div class="d-top">'+
+        '<div>'+ (c.logo?'<img class="d-logo" src="'+c.logo+'">':'<div style="font-size:19px;font-weight:700">'+esc(c.name||'')+'</div>') +'</div>'+
+        '<div class="d-title">'+esc(title)+'</div>'+
+        '<div style="width:92px"></div>'+
+      '</div>'+
+      '<div class="d-meta"><div><b>Invoice #:</b> '+esc(v.no)+'</div><div><b>Date:</b> '+dmy(v.date)+'</div></div>'+
+      '<div class="d-parties">'+
+        '<div class="pt"><div class="pt-h">Buyer:</div><div class="pt-n">'+esc(v.buyer.name)+'</div>'+
+          (v.buyer.addr?'<div class="pt-l">'+esc(v.buyer.addr)+'</div>':'')+
+          (v.buyer.ntn && !hideTax?'<div class="pt-l">NTN: '+esc(v.buyer.ntn)+'</div>':'')+'</div>'+
+        '<div class="pt"><div class="pt-h">Seller:</div><div class="pt-n">'+esc(c.name||'')+'</div>'+
+          (c.addr?'<div class="pt-l">'+esc(c.addr)+'</div>':'')+
+          (c.phone?'<div class="pt-l">Phone: '+esc(c.phone)+'</div>':'')+'</div>'+
+      '</div>'+
+      '<table class="d-items"><thead><tr>'+
+        '<th class="c">SR</th><th>Description</th>'+
+        (showHs?'<th class="c">HS Code</th>':'')+
+        '<th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th>'+
+      '</tr></thead><tbody>'+lines+'</tbody></table>'+
+      '<div class="d-sum">'+
+        '<div class="g"><span>Total:</span><span>RS. '+money(grand)+'</span></div>'+
+      '</div>'+
+      '<div class="d-words"><div><b>Total in words</b> '+esc(words(grand))+'</div></div>'+
+      (ci.footer?'<div style="margin-top:18px;font-size:10.5px;color:#333;line-height:1.6">'+esc(ci.footer)+'</div>':'')+
+      '<div class="d-sign"><div class="sb"><div class="si"></div><div class="sl">Received by</div></div>'+
+        '<div class="sb"><div class="si"></div><div class="sl">For '+esc(c.name||'')+'</div></div></div>'+
+    '</div>';
+
+  // both? sales tax + commercial ek file
+  if(ci.both){
+    printInvoice(id);  // sales tax pehle (printArea set karta)
+    $('printArea').innerHTML += '<div style="page-break-before:always"></div>' + html;
+  } else {
+    $('printArea').innerHTML = html;
+  }
+  setTimeout(function(){ window.print(); }, 200);
+}
+
 function printInvoice(id){
   var v = DB.invoices.find(function(x){return x.id===id;});
   if(!v) return;
@@ -1903,6 +2111,31 @@ function printInvoice(id){
       (v.disc?'<div><span>Discount:</span><span>-'+money(v.disc)+'</span></div>':'')+
       '<div class="g"><span>Total:</span><span>RS. '+money(v.total+furtherTot)+'</span></div>'+
     '</div>'+
+
+    // FBR tax basis / SRO proof - jo lines par SRO ho, unka reference
+    (function(){
+      var refs = [];
+      (v.lines||[]).forEach(function(l){
+        var fx = l.fbrx||{};
+        if(fx.sro || fx.sroItem){
+          var r = 'HS ' + (l.hs||'') + ' — ' + (l.tax||0) + '% under SRO ' + (fx.sro||'');
+          if(fx.sroItem) r += ', item ' + fx.sroItem;
+          if(refs.indexOf(r) === -1) refs.push(r);
+        }
+      });
+      if(!refs.length) return '';
+      return '<div style="margin-top:14px;padding:11px 13px;background:#F0F7FF;'+
+        'border:1px solid #C7DDF5;border-left:3px solid #1B4F9C;border-radius:4px;'+
+        'font-size:9.5px;color:#2C4A6E;line-height:1.65">'+
+        '<b>Tax basis (as notified by FBR):</b><br>'+
+        refs.map(function(r){ return '&bull; '+esc(r); }).join('<br>')+
+        '<div style="margin-top:6px;font-size:8.5px;color:#1B4F9C">'+
+        'Official FBR source: fbr.gov.pk/sros (most authentic — verify the latest notification here)</div>'+
+        '<div style="margin-top:5px;font-size:8px;color:#8A9AAE;font-style:italic">'+
+        'This is a facilitation tool. Tax rates and SROs can change or be superseded. '+
+        'Errors are possible — please confirm the current rate and SRO with FBR directly. '+
+        'We assist with filing but are not responsible for tax accuracy.</div></div>';
+    })()+
 
     '<div class="d-words">'+
       '<div><b>Total in words</b> '+esc(words(v.total+furtherTot))+
@@ -2552,7 +2785,16 @@ function authInit(){
 }
 
 /* ---------- BRANDED LOGIN SCREEN ---------- */
+function restoreLogin(){
+  try {
+    var ru = localStorage.getItem('rememberUser');
+    var rp = localStorage.getItem('rememberPass');
+    if(ru && $('lgUser')){ $('lgUser').value = ru; if($('lgRemember')) $('lgRemember').checked = true; }
+    if(rp && $('lgPass')){ try { $('lgPass').value = atob(rp); } catch(e){} }
+  } catch(e){}
+}
 function paintLogin(){
+  setTimeout(restoreLogin, 50);
   var c = DB.company || {};
   $('lbLogo').innerHTML = c.logo ? '<img src="'+c.logo+'" alt="">' : '';
   $('lbName').textContent = c.name || 'Invoice Manager';
@@ -2578,6 +2820,16 @@ function doLogin(){
   var p = $('lgPass').value;
   var err = $('lgErr');
   if(!u || !p){ err.textContent = 'Enter your username and password.'; return; }
+  // Remember me - save/clear
+  try {
+    if($('lgRemember') && $('lgRemember').checked){
+      localStorage.setItem('rememberUser', u);
+      localStorage.setItem('rememberPass', btoa(p));  // basic encode
+    } else {
+      localStorage.removeItem('rememberUser');
+      localStorage.removeItem('rememberPass');
+    }
+  } catch(e){}
 
   var rec = DB.users.find(function(x){ return x.user.toLowerCase() === u; });
   if(!rec){ err.textContent = 'No user by that name.'; return; }
@@ -2733,7 +2985,7 @@ function openUser(id){
     '<div class="grid g2">'+
       '<div class="field"><label>Username <span class="req">*</span></label>'+
         '<input id="muUser" type="text" value="'+esc(u.user||'')+'"'+(id?' disabled':'')+' autocapitalize="off">'+
-        '<div class="help">Used to sign in. Cannot be changed later.</div></div>'+
+        '<div class="help">Login username — cannot be changed later</div></div>'+
       '<div class="field"><label>Full name <span class="req">*</span></label>'+
         '<input id="muName" type="text" value="'+esc(u.name||'')+'"></div>'+
     '</div>'+
@@ -2748,7 +3000,7 @@ function openUser(id){
     '<div class="grid g2" style="margin-top:14px">'+
       '<div class="field"><label>Starting password <span class="req">*</span></label>'+
         '<input id="muPw" type="text" value="'+('pw'+Math.random().toString(36).slice(2,8))+'">'+
-        '<div class="help">Give this to them. They must change it on first sign-in.</div></div>'+
+        '<div class="help">Share this with the user — they must change it on first login</div></div>'+
     '</div>'),
     [{t:'Cancel',cls:'ghost',f:'closeModal()'},
      {t:'Save user',cls:'',f:'saveUser('+(id?"'"+id+"'":'null')+')'}]);
@@ -2861,10 +3113,72 @@ function exportAudit(){
 }
 
 /* ---------- ROLE GATING ---------- */
+/* Features control panel - admin har feature on/off */
+function openFeatures(){
+  if(!can('users.manage')){ toast('Only an administrator can manage features','bad'); return; }
+  DB.company.features = DB.company.features || {};
+  var rows = Object.keys(FEATURES).map(function(k){
+    var f = FEATURES[k];
+    var on = feat(k);
+    return '<div class="set-row">'+
+      '<div class="set-txt"><div class="set-t">'+esc(f.label)+
+        (f.core?' <span style="color:var(--ink-3);font-size:11px">(always on)</span>':'')+'</div></div>'+
+      '<label class="tgl"><input type="checkbox" '+(on?'checked':'')+
+        (f.core?' disabled':'')+' onchange="toggleFeature(\''+k+'\',this.checked)">'+
+        '<span class="tgl-s"></span></label></div>';
+  }).join('');
+  modal('Feature Control',
+    '<div style="font-size:13px;color:var(--ink-2);line-height:1.7;margin-bottom:16px">'+
+      'Turn features on or off for this company. Core features stay on. '+
+      'Users only see what is turned on here.</div>'+
+    '<div style="max-height:52vh;overflow-y:auto">'+rows+'</div>',
+    [{t:'Done',cls:'',f:'closeModal();applyRole()'}], true);
+}
+function toggleFeature(key, on){
+  DB.company.features = DB.company.features || {};
+  DB.company.features[key] = on;
+  save();
+  if(typeof logIt === 'function') logIt('setup','Feature ' + (on?'enabled':'disabled'), FEATURES[key] ? FEATURES[key].label : key);
+}
+
+/* ===== FEATURE CONTROL - admin har feature on/off kare ===== */
+var FEATURES = {
+  dash:        { label:'Dashboard',            page:'dash',         core:true },
+  new:         { label:'Create Invoices',       page:'new',          core:true },
+  reg:         { label:'Invoice List',          page:'reg',          core:true },
+  reports:     { label:'Reports',               page:'reports' },
+  returnSummary:{ label:'Tax Return Summary',   page:null },
+  clients:     { label:'Buyers',                page:'clients' },
+  items:       { label:'Products',              page:'items' },
+  hs:          { label:'HS Code Search',        page:'hs' },
+  autoscenario:{ label:'Auto Scenarios (FBR testing)', page:'autoscenario' },
+  fbr:         { label:'FBR Connection',        page:'fbr',          core:true },
+  downloadAll: { label:'Download All (Excel/PDF)', page:null },
+  bulkImport:  { label:'Bulk Import',           page:null },
+  emailInvoice:{ label:'Email Invoices',        page:null },
+  fbrProof:    { label:'FBR Tax Proof',         page:null },
+  autoTax:     { label:'Automatic Tax Rate',    page:null },
+  data:        { label:'Backup & Restore',      page:'data' },
+  users:       { label:'User Management',       page:'users' },
+  audit:       { label:'Activity Log',          page:'audit' }
+};
+/* feature on? (company-level flag; core hamesha on; default on jab tak off na ho) */
+function feat(key){
+  var f = FEATURES[key];
+  if(f && f.core) return true;
+  var flags = (DB.company && DB.company.features) || {};
+  return flags[key] !== false;   // default ON
+}
+
 function applyRole(){
   if(!ME) return;
   document.querySelectorAll('.nav-item').forEach(function(b){
-    b.style.display = can(b.dataset.page) ? '' : 'none'; });
+    var pg = b.dataset.page;
+    // feature off ya role nahi -> hide
+    var featOff = false;
+    Object.keys(FEATURES).forEach(function(k){ if(FEATURES[k].page === pg && !feat(k)) featOff = true; });
+    b.style.display = (can(pg) && !featOff) ? '' : 'none';
+  });
   $('sbUser').innerHTML = esc(ME.name) +
     '<div style="font-size:11px;color:#66788B">'+esc(ROLES[ME.role].label)+'</div>';
   var f = document.querySelector('.sidebar-foot');
@@ -3433,6 +3747,13 @@ function openLineFbr(btn){
         '<input id="lfSro" type="text" value="'+esc(d.sro)+'"></div>'+
       '<div class="field"><label>SRO item serial number</label>'+
         '<input id="lfSroItem" type="text" value="'+esc(d.sroItem)+'"></div>'+
+    '</div>'+
+    '<div style="margin-top:10px">'+
+      '<button type="button" class="btn sm ghost" onclick="fbrTaxReference('+
+        '(_lineFbrTarget&&_lineFbrTarget.querySelector(\'.l-hs\')?_lineFbrTarget.querySelector(\'.l-hs\').value:\'\'),'+
+        '($(\'lfRate\')?$(\'lfRate\').value:(_lineFbrTarget&&_lineFbrTarget.querySelector(\'.l-tax\')?_lineFbrTarget.querySelector(\'.l-tax\').value:\'\')),'+
+        '$(\'lfSro\').value,$(\'lfSroItem\').value,($(\'fSaleType\')?$(\'fSaleType\').value:\'\'))">'+
+        'View FBR proof &amp; source</button>'+
     '</div>'+
     '<div class="grid g4" style="margin-top:14px">'+
       '<div class="field"><label>Further tax</label>'+
@@ -4035,7 +4356,7 @@ function drawHs(){
       '<td><button class="btn sm ghost" onclick="openHs(\'' + esc(r.code) + '\')">Edit</button> '+
       '<button class="btn sm danger" onclick="delHs(\'' + esc(r.code) + '\')">Delete</button></td></tr>';
   }).join('') : '<tr><td colspan="4"><div class="empty"><p>No codes match this view.</p>'+
-      '<button class="btn" onclick="openHs()">Add a code</button></div></td></tr>';
+      '<button class="btn" onclick="openHs()">Add Code</button></div></td></tr>';
 
   var fbr = (DB.hs||[]).filter(function(r){ return r.src === 'fbr'; }).length;
   $('hsFoot').textContent = rows.length + ' shown of ' + (DB.hs||[]).length + ' codes' +
@@ -4052,7 +4373,7 @@ function openHs(code){
     '<div class="grid g2">'+
       '<div class="field"><label>HS code <span class="req">*</span></label>'+
         '<input id="mhCode" type="text" value="'+esc(r?r.code:'')+'" placeholder="8443.3100">'+
-        '<div class="help">Four digits, a dot, four digits</div></div>'+
+        '<div class="help">Four digits, a dot, then four digits</div></div>'+
       '<div class="field"><label>Where it came from</label>'+
         '<input type="text" disabled value="'+esc(r ? ({fbr:'FBR',starter:'Starter list',mine:'Added by me'}[r.src||'mine']) : 'Added by me')+'"></div>'+
     '</div>'+
@@ -4310,7 +4631,7 @@ function openHs(target){
           '<input id="hsNewCode" type="text" placeholder="8443.9990"></div>'+
         '<div class="field"><label>What it covers</label>'+
           '<input id="hsNewDesc" type="text" placeholder="Short description"></div>'+
-        '<button class="btn ghost" onclick="hsAdd()">Add and use</button>'+
+        '<button class="btn ghost" onclick="hsAdd()">Add & Use</button>'+
       '</div>'+
     '</div>'+
     '<div style="margin-top:14px;font-size:11.5px;color:var(--ink-2);line-height:1.7;'+
@@ -4418,6 +4739,31 @@ openItem = function(id){
 var _fillCoHs = fillCompany;
 fillCompany = function(){
   _fillCoHs();
+  // Invoice settings load
+  var s = DB.company.invSettings || {};
+  if($('coAutoRate')) $('coAutoRate').checked = !!s.autoRate;
+  if($('coFullTariff')) $('coFullTariff').checked = !!s.fullTariff;
+  if($('coAutoVerify')) $('coAutoVerify').checked = s.autoVerify !== false;
+  if($('coReqNtn')) $('coReqNtn').checked = !!s.reqNtn;
+  if($('coDefTax')) $('coDefTax').value = s.defTax || '';
+  if($('coDefTerms')) $('coDefTerms').value = s.defTerms || '';
+  // Commercial invoice settings load
+  var ci = DB.company.commercial || {};
+  if($('coCiOn')) $('coCiOn').checked = !!ci.on;
+  if($('coCiBoth')) $('coCiBoth').checked = !!ci.both;
+  if($('coCiHideTax')) $('coCiHideTax').checked = ci.hideTax !== false;
+  if($('coCiShowHs')) $('coCiShowHs').checked = !!ci.showHs;
+  if($('coCiTitle')) $('coCiTitle').value = ci.title || '';
+  if($('coCiFooter')) $('coCiFooter').value = ci.footer || '';
+  if($('coCiLock')) $('coCiLock').value = '';  // password khali dikhao
+  if($('coDefSaleType') && typeof SALE_TYPES !== 'undefined'){
+    $('coDefSaleType').innerHTML = SALE_TYPES.map(function(x){
+      return '<option'+(x===s.defSaleType?' selected':'')+'>'+esc(x)+'</option>'; }).join('');
+  }
+  if($('coDefUnit') && typeof UNITS !== 'undefined'){
+    $('coDefUnit').innerHTML = UNITS.map(function(u){
+      return '<option'+(u===s.defUnit?' selected':'')+'>'+esc(u)+'</option>'; }).join('');
+  }
   if($('coHs')){
     $('coHs').value = DB.company.defaultHs || '';
     wrapHs($('coHs'));
@@ -4434,6 +4780,45 @@ function hsNote(){
 var _saveCoHs = saveCompany;
 saveCompany = function(){
   if($('coHs')) DB.company.defaultHs = $('coHs').value.trim();
+  // Invoice settings save
+  // Commercial invoice - password lock check
+  var ci = DB.company.commercial || {};
+  if(ci.lockHash){
+    // locked - password chahiye badalne ke liye
+    var entered = $('coCiLock') ? $('coCiLock').value : '';
+    if(entered && hashPw(entered, ci.lockSalt) === ci.lockHash){
+      // sahi password - ab settings badal sakte, lock hata do agar khali
+    } else if($('coCiOn') && ((!!$('coCiOn').checked) !== (!!ci.on) || ($('coCiTitle')&&$('coCiTitle').value!==ci.title))){
+      toast('Commercial settings are locked. Enter the correct password to change them.','bad');
+      return;
+    }
+  }
+  var newLock = $('coCiLock') ? $('coCiLock').value.trim() : '';
+  DB.company.commercial = {
+    on: $('coCiOn') ? $('coCiOn').checked : false,
+    both: $('coCiBoth') ? $('coCiBoth').checked : false,
+    hideTax: $('coCiHideTax') ? $('coCiHideTax').checked : true,
+    showHs: $('coCiShowHs') ? $('coCiShowHs').checked : false,
+    title: $('coCiTitle') ? $('coCiTitle').value.trim() : '',
+    footer: $('coCiFooter') ? $('coCiFooter').value.trim() : '',
+    lockHash: ci.lockHash || '', lockSalt: ci.lockSalt || ''
+  };
+  if(newLock && !ci.lockHash){
+    // naya lock set
+    var slt = newSalt();
+    DB.company.commercial.lockSalt = slt;
+    DB.company.commercial.lockHash = hashPw(newLock, slt);
+  }
+  DB.company.invSettings = {
+    autoRate: $('coAutoRate') ? $('coAutoRate').checked : false,
+    fullTariff: $('coFullTariff') ? $('coFullTariff').checked : false,
+    autoVerify: $('coAutoVerify') ? $('coAutoVerify').checked : true,
+    reqNtn: $('coReqNtn') ? $('coReqNtn').checked : false,
+    defTax: $('coDefTax') ? ($('coDefTax').value.trim() || '') : '',
+    defTerms: $('coDefTerms') ? $('coDefTerms').value.trim() : '',
+    defSaleType: $('coDefSaleType') ? $('coDefSaleType').value : '',
+    defUnit: $('coDefUnit') ? $('coDefUnit').value : ''
+  };
   _saveCoHs();
 };
 </script>
@@ -5120,22 +5505,34 @@ function openImport(){
       'the software are added on the way in.'+
     '</div>'+
     '<input type="file" id="impFile" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="impRead(this)">'+
-    '<button class="btn" onclick="document.getElementById(\'impFile\').click()">Choose a CSV file</button>'+
-    '<button class="btn ghost" style="margin-left:8px" onclick="impTemplate()">Download a blank template</button>'+
+    '<button class="btn" onclick="document.getElementById(\'impFile\').click()">Choose File</button>'+
+    '<button class="btn ghost" style="margin-left:8px" onclick="impTemplate()">Download Template</button>'+
     '<div id="impBody" style="margin-top:18px"></div>',
     [{t:'Close',cls:'ghost',f:'closeModal()'}], true);
 }
 
 function impTemplate(){
   var head = IMP_FIELDS.map(function(f){ return f[1]; });
-  var eg = ['PG00400','2026-09-05','Martindow Pvt Ltd','8837457-8','Sindh','Registered',
+  var eg = ['355','2026-09-05','ABC Trading Co','8837457-8','Sindh','Registered',
             'Karachi','Ricoh MP 5055 Black Toner','3215.9010','KG','2','8500','18'];
-  var eg2 = ['PG00400','2026-09-05','Martindow Pvt Ltd','8837457-8','Sindh','Registered',
+  var eg2 = ['355','2026-09-05','ABC Trading Co','8837457-8','Sindh','Registered',
              'Karachi','Annual maintenance contract','9820.0000','Numbers, pieces, units','1','96000','18'];
-  dl('\ufeff' + [head, eg, eg2].map(function(r){
-    return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(','); }).join('\r\n'),
-    'invoice-import-template.csv','text/csv;charset=utf-8');
-  toast('Template downloaded — fill it in and import it back','good');
+  // Excel template banao (SheetJS)
+  try { ensureSheetJS(); } catch(e){}
+  if(typeof XLSX !== 'undefined'){
+    var ws = XLSX.utils.aoa_to_sheet([head, eg, eg2]);
+    ws['!cols'] = head.map(function(h){ return { wch: Math.max(12, h.length+2) }; });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
+    XLSX.writeFile(wb, 'invoice-import-template.xlsx');
+    toast('Excel template downloaded — fill it and import back','good');
+  } else {
+    // fallback CSV
+    dl('\ufeff' + [head, eg, eg2].map(function(r){
+      return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(','); }).join('\r\n'),
+      'invoice-import-template.csv','text/csv;charset=utf-8');
+    toast('Template downloaded','good');
+  }
 }
 
 function impRead(input){
@@ -5158,6 +5555,93 @@ function impRead(input){
   };
   if(isXlsx) r.readAsArrayBuffer(f); else r.readAsText(f);
   input.value = '';
+}
+
+/* JSZip - PDF zip banane ke liye (CDN se) */
+var _jszipLoaded = false;
+function ensureJSZip(cb){
+  if(typeof JSZip !== 'undefined'){ cb(); return; }
+  if(_jszipLoaded){ setTimeout(function(){ ensureJSZip(cb); }, 300); return; }
+  _jszipLoaded = true;
+  var s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+  s.onload = function(){ cb(); };
+  s.onerror = function(){ toast('Could not load zip library — check internet','bad'); };
+  document.head.appendChild(s);
+}
+
+/* ============ DOWNLOAD ALL ============ */
+function downloadAllMenu(){
+  modal('Download all invoices',
+    '<div style="font-size:13px;color:var(--ink-2);line-height:1.7;margin-bottom:18px">'+
+      'Download every invoice in one go. Choose what you need:'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;gap:12px">'+
+      '<button class="btn" onclick="downloadAllExcel()" style="justify-content:flex-start;padding:14px 16px">'+
+        '<b>Excel file</b> — all '+DB.invoices.length+' invoice(s) in one spreadsheet</button>'+
+      '<button class="btn" onclick="downloadAllPdf()" style="justify-content:flex-start;padding:14px 16px">'+
+        '<b>PDF folder (zip)</b> — approved invoices as printable PDFs</button>'+
+    '</div>',
+    [{t:'Close',cls:'ghost',f:'closeModal()'}], true);
+}
+
+/* Real Excel (.xlsx) - saari invoices */
+function downloadAllExcel(){
+  if(!DB.invoices.length) return toast('No invoices','bad');
+  try { ensureSheetJS(); } catch(e){}
+  if(typeof XLSX === 'undefined') return toast('Excel library loading — try again in a moment','bad');
+
+  var head = ['Invoice No','Date','Type','Buyer','Buyer NTN','Buyer STRN','Province',
+    'Registration','Description','HS Code','Qty','Rate','Excl Tax','Sales Tax','Total','FBR Status','FBR IRN'];
+  var rows = [head];
+  DB.invoices.slice().sort(function(a,b){return a.date.localeCompare(b.date);}).forEach(function(v){
+    var f = v.fbr||{};
+    // har line alag row (ya pehli line + summary)
+    (v.lines||[{}]).forEach(function(l, i){
+      rows.push([
+        i===0 ? v.no : '', i===0 ? dmy(v.date) : '', i===0 ? v.type : '',
+        i===0 ? v.buyer.name : '', i===0 ? v.buyer.ntn : '', i===0 ? v.buyer.strn : '',
+        i===0 ? v.buyer.prov : '', i===0 ? v.buyer.reg : '',
+        l.desc||'', l.hs||'', l.qty||'', l.rate||'',
+        i===0 ? n2(v.sub) : '', i===0 ? n2(v.tax) : '', i===0 ? n2(v.total) : '',
+        i===0 ? (f.status||'pending') : '', i===0 ? (f.irn||'') : ''
+      ]);
+    });
+  });
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = head.map(function(h){ return { wch: Math.max(10, h.length+2) }; });
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Invoices');
+  XLSX.writeFile(wb, 'all-invoices-'+today()+'.xlsx');
+  closeModal();
+  toast('Downloaded '+DB.invoices.length+' invoice(s) to Excel','good');
+}
+
+/* PDF zip - approved (sent) invoices */
+function downloadAllPdf(){
+  var approved = DB.invoices.filter(function(v){ return (v.fbr||{}).status === 'sent'; });
+  if(!approved.length) return toast('No approved (FBR-sent) invoices yet','bad');
+  toast('Building '+approved.length+' PDF(s)…');
+  ensureJSZip(function(){
+    var zip = new JSZip();
+    var done = 0;
+    approved.forEach(function(v){
+      try {
+        var html = buildInvoiceHtml ? buildInvoiceHtml(v) : invoiceDocHtml(v);
+        zip.file('invoice-'+String(v.no).replace(/[^A-Za-z0-9-]/g,'_')+'.html', html);
+        done++;
+      } catch(e){}
+    });
+    zip.generateAsync({type:'blob'}).then(function(blob){
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'approved-invoices-'+today()+'.zip';
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+      closeModal();
+      toast('Downloaded '+done+' approved invoice(s)','good');
+    });
+  });
 }
 
 /* Excel (.xlsx/.xls) ko seedha parho \u2014 SheetJS se, jo zaroorat par CDN se aata hai. */
@@ -5214,7 +5698,7 @@ function impMapUI(){
     }).join('') +
     '</div>'+
     '<div style="margin-top:16px;display:flex;gap:10px;align-items:center">'+
-      '<button class="btn" onclick="impPreview()">Check it</button>'+
+      '<button class="btn" onclick="impPreview()">Preview</button>'+
       '<span id="impMsg" style="font-size:12.5px;color:var(--ink-3)"></span>'+
     '</div><div id="impOut" style="margin-top:16px"></div>';
 }
@@ -5462,7 +5946,7 @@ function drawDash(){
   var pSales= pv.reduce(function(a,v){ return a+v.sub; },0);
 
   var change = pSales ? Math.round((sales - pSales) / pSales * 100) : null;
-  var changeTxt = change === null ? 'no figure for last month'
+  var changeTxt = change === null ? 'No data for last month'
     : (change >= 0 ? '▲ ' : '▼ ') + Math.abs(change) + '% on last month';
   var changeCol = change === null ? 'var(--ink-3)' : (change >= 0 ? 'var(--green)' : 'var(--red)');
 
@@ -5562,7 +6046,7 @@ function drawDash(){
         ({sent:'Sent',pending:'Not sent',queued:'Waiting',failed:'Rejected'}[f.status]||'Not sent')+
       '</span></td></tr>';
   }).join('') : '<tr><td colspan="5"><div class="empty"><p>Nothing here yet.</p>'+
-    '<button class="btn" onclick="newInvoice()">Create your first invoice</button></div></td></tr>';
+    '<button class="btn" onclick="newInvoice()">Create Your First Invoice</button></div></td></tr>';
 
   $('cntInv').textContent = DB.invoices.length || '';
   $('cntCli').textContent = DB.clients.length || '';
@@ -5570,6 +6054,101 @@ function drawDash(){
 }
 
 /* ---------- reports ---------- */
+
+/* Sales Tax Return Summary - IRIS-ready totals */
+function rpReturn(list){
+  var box = document.getElementById('rpReturn');
+  if(!box) return;
+  list = list || DB.invoices;
+
+  // Output tax breakdown by rate
+  var byRate = {}; var totalSales = 0, totalTax = 0, totalInvoices = list.length;
+  var sentSales = 0, sentTax = 0, sentCount = 0;
+  list.forEach(function(v){
+    totalSales += (+v.sub || 0);
+    totalTax += (+v.tax || 0);
+    if((v.fbr||{}).status === 'sent'){ sentSales += (+v.sub||0); sentTax += (+v.tax||0); sentCount++; }
+    (v.lines||[]).forEach(function(l){
+      var r = (l.tax != null ? l.tax : 18) + '%';
+      if(!byRate[r]) byRate[r] = { sales:0, tax:0 };
+      var excl = (+l.qty||0) * (+l.rate||0);
+      byRate[r].sales += excl;
+      byRate[r].tax += excl * (+l.tax||0) / 100;
+    });
+  });
+
+  window._rpReturnData = { totalSales:totalSales, totalTax:totalTax, byRate:byRate,
+    sentSales:sentSales, sentTax:sentTax, sentCount:sentCount, totalInvoices:totalInvoices };
+
+  var rateRows = Object.keys(byRate).sort().map(function(r){
+    return '<tr><td>'+esc(r)+'</td><td class="num">'+money(byRate[r].sales)+'</td>'+
+      '<td class="num">'+money(byRate[r].tax)+'</td></tr>';
+  }).join('');
+
+  box.innerHTML =
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">'+
+      '<div style="background:#F0F7FF;border-radius:8px;padding:14px">'+
+        '<div style="font-size:11.5px;color:#5A7290">Total Sales (Excl. Tax)</div>'+
+        '<div style="font-size:22px;font-weight:700;color:#1B4F9C;margin-top:4px">'+money(totalSales)+'</div></div>'+
+      '<div style="background:#EDFBF3;border-radius:8px;padding:14px">'+
+        '<div style="font-size:11.5px;color:#3B7A5A">Output Sales Tax</div>'+
+        '<div style="font-size:22px;font-weight:700;color:#059669;margin-top:4px">'+money(totalTax)+'</div></div>'+
+      '<div style="background:#FEF6EC;border-radius:8px;padding:14px">'+
+        '<div style="font-size:11.5px;color:#8A6420">Invoices Filed with FBR</div>'+
+        '<div style="font-size:22px;font-weight:700;color:#D97706;margin-top:4px">'+sentCount+' / '+totalInvoices+'</div></div>'+
+    '</div>'+
+    (rateRows ?
+      '<div style="font-size:12.5px;font-weight:600;color:var(--ink-2);margin-bottom:8px">Output tax by rate</div>'+
+      '<div class="tbl-wrap"><table><thead><tr><th>Tax Rate</th>'+
+        '<th class="num">Sales (Excl. Tax)</th><th class="num">Sales Tax</th></tr></thead><tbody>'+
+        rateRows+
+        '<tr style="border-top:2px solid var(--line)"><td><b>Total</b></td>'+
+        '<td class="num"><b>'+money(totalSales)+'</b></td>'+
+        '<td class="num"><b>'+money(totalTax)+'</b></td></tr>'+
+      '</tbody></table></div>' : '') +
+    (sentCount < totalInvoices ?
+      '<div style="margin-top:10px;font-size:11.5px;color:#B45309">'+
+      '&#9888; '+(totalInvoices-sentCount)+' invoice(s) not yet filed with FBR. '+
+      'Submit them so your return matches FBR records.</div>' : '');
+}
+
+function rpReturnExport(){
+  var d = window._rpReturnData; if(!d) return toast('No data','bad');
+  try { ensureSheetJS(); } catch(e){}
+  if(typeof XLSX === 'undefined') return toast('Excel library loading — try again','bad');
+  var rows = [['Sales Tax Return Summary'],
+    ['Period', (d.from||'start')+' to '+(d.to||'today')], [],
+    ['Total Taxable Value', d.sub], ['Output Sales Tax', d.tax],
+    ['Further Tax', d.further], ['Discount', d.disc],
+    ['Invoices Filed with FBR', d.filed+' of '+d.total], [],
+    ['Tax Rate','Taxable Value','Output Tax','Lines']];
+  Object.keys(d.byRate).sort().forEach(function(r){
+    var b = d.byRate[r]; rows.push([r, b.taxable, b.output, b.count]);
+  });
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Return Summary');
+  XLSX.writeFile(wb, 'sales-tax-return-'+today()+'.xlsx');
+  toast('Return summary exported','good');
+}
+function rpReturnPrint(){
+  var el = $('rpReturn'); if(!el) return;
+  var w = window.open('', '_blank');
+  if(!w){ toast('Allow pop-ups to print','bad'); return; }
+  w.document.write('<html><head><title>Sales Tax Return Summary</title>'+
+    '<style>body{font-family:Arial,sans-serif;max-width:720px;margin:30px auto;padding:0 20px}'+
+    'table{width:100%;border-collapse:collapse;margin-top:14px}'+
+    'th,td{border:1px solid #ccc;padding:8px;text-align:left;font-size:13px}'+
+    'th{background:#f0f7ff}.num{text-align:right}</style></head><body>'+
+    '<h2 style="color:#1B4F9C">Sales Tax Return Summary</h2>'+
+    '<p style="color:#666">'+((DB.company&&DB.company.name)||'')+' &middot; Generated '+dmy(today())+'</p>'+
+    el.innerHTML+
+    '<p style="margin-top:20px;font-size:11px;color:#888">Facilitation tool — verify before filing. '+
+    'Final responsibility rests with the taxpayer.</p></body></html>');
+  w.document.close();
+  setTimeout(function(){ w.print(); }, 400);
+}
+
 function drawReports(){
   var from = $('rpFrom').value, to = $('rpTo').value;
   var list = DB.invoices.filter(function(v){
@@ -5582,12 +6161,59 @@ function drawReports(){
   var tax = list.reduce(function(a,v){ return a+v.tax; },0);
   var filed = list.filter(function(v){ return (v.fbr||{}).status === 'sent'; });
 
+  // ===== Sales Tax Return Summary (IRIS-ready) =====
+  if($('rpReturn')){
+    // rate-wise breakdown (line level)
+    var byRate = {}, furtherTot = 0, discTot = 0;
+    list.forEach(function(v){
+      discTot += (v.disc||0);
+      (v.lines||[]).forEach(function(l){
+        var r = (l.tax||0)+'%';
+        if(!byRate[r]) byRate[r] = { taxable:0, output:0, count:0 };
+        byRate[r].taxable += (l.excl||0);
+        byRate[r].output += (l.tamt||0);
+        byRate[r].count++;
+        if(l.fbrx && l.fbrx.further) furtherTot += (l.fbrx.further||0);
+      });
+    });
+    var rateRows = Object.keys(byRate).sort().map(function(r){
+      var b = byRate[r];
+      return '<tr><td><b>'+esc(r)+'</b></td><td class="num">'+money(b.taxable)+
+        '</td><td class="num">'+money(b.output)+'</td><td class="num">'+b.count+'</td></tr>';
+    }).join('');
+
+    window._rpReturnData = { sub:sub, tax:tax, further:furtherTot, disc:discTot,
+      filed:filed.length, total:list.length, byRate:byRate, from:from, to:to };
+
+    $('rpReturn').innerHTML =
+      '<div class="grid g3" style="margin-bottom:16px">'+
+        '<div class="stat" style="border-radius:8px"><div class="k">Total Taxable Value</div>'+
+          '<div class="v" style="font-size:22px">'+money0(sub)+'</div>'+
+          '<div class="m">Value excluding sales tax</div></div>'+
+        '<div class="stat" style="border-radius:8px"><div class="k">Output Sales Tax</div>'+
+          '<div class="v" style="font-size:22px;color:#1B4F9C">'+money0(tax)+'</div>'+
+          '<div class="m">Sales tax you collected</div></div>'+
+        '<div class="stat" style="border-radius:8px"><div class="k">Invoices Filed with FBR</div>'+
+          '<div class="v" style="font-size:22px;color:var(--green)">'+filed.length+' / '+list.length+'</div>'+
+          '<div class="m">Reported in real time</div></div>'+
+      '</div>'+
+      '<div class="tbl-wrap"><table><thead><tr><th>Tax Rate</th>'+
+        '<th class="num">Taxable Value</th><th class="num">Output Tax</th>'+
+        '<th class="num">Lines</th></tr></thead><tbody>'+
+        (rateRows || '<tr><td colspan="4" style="text-align:center;color:var(--ink-3);padding:20px">No invoices in this period</td></tr>')+
+        '<tr style="font-weight:600;background:var(--surface-2)"><td>Total</td>'+
+        '<td class="num">'+money(sub)+'</td><td class="num">'+money(tax)+'</td>'+
+        '<td class="num"></td></tr>'+
+      '</tbody></table></div>';
+  }
+
+  try { if(typeof rpReturn === 'function') rpReturn(list); } catch(e){}
   $('rpTotals').innerHTML =
     '<div class="grid g4">'+
       '<div class="stat"><div class="k">Invoices</div><div class="v">'+list.length+'</div>'+
         '<div class="m">'+filed.length+' filed with FBR</div></div>'+
-      '<div class="stat"><div class="k">Value excluding tax</div><div class="v">'+money0(sub)+'</div></div>'+
-      '<div class="stat"><div class="k">Sales tax charged</div><div class="v">'+money0(tax)+'</div></div>'+
+      '<div class="stat"><div class="k">Value (Excluding Tax)</div><div class="v">'+money0(sub)+'</div></div>'+
+      '<div class="stat"><div class="k">Sales Tax Collected</div><div class="v">'+money0(tax)+'</div></div>'+
       '<div class="stat"><div class="k">Total billed</div><div class="v">'+money0(sub+tax)+'</div></div>'+
     '</div>';
 
@@ -5844,6 +6470,69 @@ function invoiceEmailHtml(v){
     css + '</style></head><body>' + doc + '</body></html>';
 }
 
+/* FBR Tax Reference — proof viewer (max info + authentic FBR link + disclaimer) */
+function fbrTaxReference(hs, rate, sro, sroItem, saleType){
+  var fbrSroUrl = 'https://www.fbr.gov.pk/ShowSROs?Department=Sales+Tax';
+  var fbrMainUrl = 'https://www.fbr.gov.pk/sros';
+  var body =
+    '<div style="font-size:13px;line-height:1.75;color:var(--ink-2)">'+
+      '<div style="background:var(--surface-2);border-radius:8px;padding:16px;margin-bottom:16px">'+
+        '<div style="font-size:12px;color:var(--ink-3);margin-bottom:10px;font-weight:600">FROM THIS SOFTWARE</div>'+
+        (hs ? '<div><b>HS Code:</b> '+esc(hs)+'</div>' : '')+
+        (saleType ? '<div><b>Sale Type:</b> '+esc(saleType)+'</div>' : '')+
+        (rate != null ? '<div><b>Tax Rate:</b> '+esc(rate)+'%</div>' : '')+
+        (sro ? '<div><b>SRO / Schedule:</b> '+esc(sro)+'</div>' : '')+
+        (sroItem ? '<div><b>SRO Item:</b> '+esc(sroItem)+'</div>' : '')+
+      '</div>'+
+
+      '<div style="background:#F0F7FF;border:1px solid #C7DDF5;border-left:3px solid #1B4F9C;'+
+        'border-radius:8px;padding:16px;margin-bottom:16px">'+
+        '<div style="font-size:12px;color:#1B4F9C;margin-bottom:10px;font-weight:700">'+
+          '&#10003; MOST AUTHENTIC — FROM FBR</div>'+
+        '<div style="font-size:12.5px;color:#2C4A6E;margin-bottom:12px">'+
+          'The links below open FBR&rsquo;s own official website. This is the most authentic '+
+          'source, because the current and latest notification always lives there — '+
+          'even if an SRO has been updated or superseded.</div>'+
+        '<a href="'+fbrSroUrl+'" target="_blank" rel="noopener" '+
+          'style="display:inline-block;background:#1B4F9C;color:#fff;padding:9px 16px;'+
+          'border-radius:6px;text-decoration:none;font-size:12.5px;font-weight:600;margin-right:8px">'+
+          'Search this SRO on FBR &rarr;</a>'+
+        '<a href="'+fbrMainUrl+'" target="_blank" rel="noopener" '+
+          'style="display:inline-block;background:#fff;color:#1B4F9C;border:1px solid #1B4F9C;'+
+          'padding:8px 16px;border-radius:6px;text-decoration:none;font-size:12.5px;font-weight:600">'+
+          'All FBR SROs &rarr;</a>'+
+      '</div>'+
+
+      '<div style="background:#FFF8E6;border:1px solid #F0D89A;border-radius:8px;padding:14px;'+
+        'font-size:12px;color:#7A5A18;line-height:1.7">'+
+        '<b>&#9888; Please read</b><br>'+
+        'This software is a <b>facilitation and guidance tool</b>. Tax rates and SROs change '+
+        'often and can be superseded by newer notifications. <b>Errors are possible.</b> '+
+        'Always confirm the current rate and SRO directly with FBR before relying on it. '+
+        '<b>We help you file — we are not responsible for tax accuracy, and the '+
+        'final responsibility rests with the taxpayer.</b>'+
+      '</div>'+
+    '</div>';
+
+  modal('FBR Tax Reference &amp; Proof', body,
+    [{t:'Close',cls:'ghost',f:'closeModal()'},
+     {t:'Print / Save',cls:'',f:'fbrRefPrint()'}], true);
+  window._fbrRefBody = body;
+}
+function fbrRefPrint(){
+  var w = window.open('', '_blank');
+  if(!w){ toast('Allow pop-ups to print','bad'); return; }
+  w.document.write('<html><head><title>FBR Tax Reference</title>'+
+    '<style>body{font-family:Arial,sans-serif;max-width:640px;margin:30px auto;padding:0 20px}</style>'+
+    '</head><body><h2 style="color:#1B4F9C">FBR Tax Reference &amp; Proof</h2>'+
+    (window._fbrRefBody||'')+
+    '<div style="margin-top:20px;font-size:11px;color:#888">Generated by '+
+    ((DB.company&&DB.company.name)||'Invoice Manager')+' on '+dmy(today())+'</div>'+
+    '</body></html>');
+  w.document.close();
+  setTimeout(function(){ w.print(); }, 400);
+}
+
 function emailInvoice(id){
   var v = DB.invoices.find(function(x){ return x.id === id; });
   if(!v) return;
@@ -5861,8 +6550,9 @@ function emailInvoice(id){
       '<input id="emSub" type="text" value="'+
         esc('Invoice ' + v.no + ' from ' + (DB.company.name||'')) + '"></div>'+
     '<div style="margin-top:14px;font-size:12.5px;color:var(--ink-2);line-height:1.7">'+
-      'The invoice goes in the body of the email, exactly as it prints. It is sent '+
-      'from your own Google account through the bridge, so it comes from you.'+
+      'The invoice is sent with <b>'+esc(DB.company.name||'your company')+'</b> as the sender name, '+
+      'and replies go to <b>'+esc(DB.company.email||'your company email')+'</b>. '+
+      'Set your email on the Company page so it appears correctly.'+
     '</div>'+
     (to ? '' : '<div style="margin-top:12px;font-size:12.5px;color:var(--amber)">'+
       'This buyer has no email address saved. Add one on the Buyers page so it fills in next time.</div>'),
@@ -7036,7 +7726,7 @@ go = function(p){
     if(!bar || bar.querySelector('.vbtn')) return;
     var b = document.createElement('button');
     b.className = 'btn sm ghost vbtn';
-    b.textContent = 'Check all for mistakes';
+    b.textContent = 'Validate all with FBR';
     b.onclick = function(){ runValidation('pending'); };
     var imp = bar.querySelector('button[onclick^="openImport"]');
     if(imp) bar.insertBefore(b, imp);
@@ -7697,7 +8387,7 @@ function openSroFinder(){
     '</div>'+
     '<div class="field"><label>Step 1 — the rate, as FBR lists it</label>'+
       '<select id="sfRate" onchange="sfLoadSro()"><option value="">loading…</option></select>'+
-      '<div class="help" id="sfRateHelp">Pick the line that matches your rate</div></div>'+
+      '<div class="help" id="sfRateHelp">Select the rate that applies</div></div>'+
     '<div class="field" style="margin-top:14px"><label>Step 2 — SRO / schedule</label>'+
       '<select id="sfSro" onchange="sfLoadItems()"><option value="">choose a rate first</option></select>'+
       '</div>'+
@@ -8484,7 +9174,7 @@ go = function(p){
     if(!bar || bar.querySelector('.fbrallbtn')) return;
     var b = document.createElement('button');
     b.className = 'btn sm ghost fbrallbtn';
-    b.textContent = 'Check all with FBR';
+    b.textContent = 'Validate with FBR';
     b.title = 'Asks FBR whether these would be accepted. Nothing is filed.';
     b.onclick = checkAllWithFbr;
     var v = bar.querySelector('.vbtn');
@@ -9095,7 +9785,7 @@ function resolveScenario(scenarioCode, onStep){
     'Goods (FED in ST Mode)': ['22','2009','2101','2106','2007','2008']
   };
   if(CHAPTER_HINT[saleType]) cfg._chapterHint = CHAPTER_HINT[saleType];
-  onStep('Resolving ' + scenarioCode + ' (' + saleType + ')… [BUILD-V22-FBR012]');
+  onStep('Resolving ' + scenarioCode + ' (' + saleType + ')… [BUILD-V30-RETURN012]');
 
   // Web-researched exact config? Seedha use karo (HS finding skip)
   // Company ki tested values (NTN match) pehle, warna universal EXACT
@@ -9373,7 +10063,7 @@ function showLogPopup(text){
   modal('Result log — select all & copy, or download',
     '<textarea id="logTA" style="width:100%;height:300px;font-family:monospace;font-size:12px;'+
     'border:1px solid #ccc;border-radius:6px;padding:8px" readonly>'+esc(text)+'</textarea>'+
-    '<div class="help" style="margin-top:8px">Tip: click inside, press Ctrl+A then Ctrl+C to copy all.</div>',
+    '<div class="help" style="margin-top:8px">Tip: Click inside the box, then press Ctrl+A and Ctrl+C to copy everything</div>',
     [{t:'Close',cls:'ghost',f:'closeModal()'},
      {t:'Select all',cls:'',f:'document.getElementById(\'logTA\').select()'},
      {t:'Download .txt',cls:'green',f:'downloadLog()'}]);
@@ -9577,5 +10267,31 @@ function asRunAll(){
 
 </script>
 
+<script>
+function wrapPasswords(root){
+  root = root || document;
+  var fields = root.querySelectorAll('input[type="password"]:not([data-pw-done])');
+  Array.prototype.forEach.call(fields, function(inp){
+    inp.setAttribute('data-pw-done','1');
+    var wrap = document.createElement('div');
+    wrap.className = 'pw-wrap';
+    if(inp.parentNode){ inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(inp); }
+    var eye = document.createElement('button');
+    eye.type = 'button'; eye.className = 'pw-eye'; eye.innerHTML = '&#128065;';
+    eye.title = 'Show or hide password';
+    eye.onclick = function(){
+      if(inp.type === 'password'){ inp.type = 'text'; eye.style.color = 'var(--teal)'; }
+      else { inp.type = 'password'; eye.style.color = ''; }
+    };
+    wrap.appendChild(eye);
+  });
+}
+setTimeout(function(){ wrapPasswords(); }, 300);
+(function(){
+  if(!window.MutationObserver) return;
+  var mo = new MutationObserver(function(){ wrapPasswords(); });
+  if(document.body) mo.observe(document.body, {childList:true, subtree:true});
+})();
+</script>
 </body>
 </html>
