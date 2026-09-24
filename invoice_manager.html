@@ -464,7 +464,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 12.8 · Audited · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 12.9 · Cloud FBR · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -521,7 +521,7 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="sidebar-foot">
       <div id="sbUser" style="margin-bottom:7px"></div>
       <button onclick="doLogout()">Sign out</button>
-      <div class="sb-ver">Invoice Manager v12.8</div>
+      <div class="sb-ver">Invoice Manager v12.9</div>
     </div>
   </aside>
 
@@ -1067,13 +1067,11 @@ tbody tr:hover{background:var(--surface-2)}
                 <input id="fbScn" type="text" placeholder="SN001">
                 <div class="help">Sandbox testing mode. Leave blank when live.</div></div>
             </div>
-            <div class="grid g2" style="margin-top:14px">
-              <div class="field"><label>Client ID</label>
-                <input id="fbClient" type="text" placeholder="paragon" autocapitalize="off">
-                <div class="help">Provided with your bridge access</div></div>
-              <div class="field"><label>Shared secret</label>
-                <input id="fbKey" type="password">
-                <div class="help">Your bridge access password</div></div>
+            <!-- Cloud mode: Client ID + secret login se automatic (hidden) -->
+            <input id="fbClient" type="hidden">
+            <input id="fbKey" type="hidden">
+            <div style="margin-top:14px;padding:12px 14px;background:#EDFBF3;border:1px solid #A7E5C4;border-radius:8px;font-size:12.5px;color:#1B7A4B">
+              &#10003; You are signed in. FBR connection is handled automatically — no bridge password needed.
             </div>
             <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
               <button class="btn" onclick="saveFbr()">Save settings</button>
@@ -1655,10 +1653,11 @@ function testFbr(){
     s.style.color='var(--red)'; s.textContent='Enter a bridge URL first.'; return;
   }
   s.style.color='var(--ink-3)'; s.textContent='Contacting bridge…';
-  fetch($('fbUrl').value.trim(), {
+  var url = $('fbUrl').value.trim() || window._autoBridge || '';
+  fetch(url, {
     method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify({ action:'ping', key:$('fbKey').value,
-      client: $('fbClient') ? $('fbClient').value.trim().toLowerCase() : '' })
+    body: JSON.stringify({ action:'ping', session: window._cloudSession || '',
+      client: DB.fbr.client || '', key: DB.fbr.key || '' })
   }).then(function(r){ return r.json(); })
     .then(function(d){
       if(d && d.ok){ s.style.color='var(--green)'; s.textContent='Bridge reached. '+(d.msg||''); }
