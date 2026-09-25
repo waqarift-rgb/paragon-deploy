@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 14.2 — FBR Digital Invoicing
+   Invoice Manager 14.6 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 14.2 · Auto Lock · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 14.6 · NTN Auto · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -544,7 +544,7 @@ tbody tr:hover{background:var(--surface-2)}
     <div class="sidebar-foot">
       <div id="sbUser" style="margin-bottom:7px"></div>
       <button onclick="doLogout()">Sign out</button>
-      <div class="sb-ver">Invoice Manager v14.2</div>
+      <div class="sb-ver">Invoice Manager v14.3</div>
     </div>
   </aside>
 
@@ -1716,7 +1716,10 @@ function openClient(id){
   modal(id?'Edit buyer':'New buyer',
     '<div class="grid g2">'+
       fld('mcName','Buyer name','text',c.name,'',true)+
-      fld('mcNtn','NTN / CNIC','text',c.ntn,'13 digits for CNIC, 7–9 for NTN')+
+      '<div class="field"><label>NTN / CNIC</label>'+
+        '<input id="mcNtn" type="text" value="'+esc(c.ntn||'')+'">'+
+        '<div class="help">Type the NTN, then click away — name and status fill in from FBR automatically</div>'+
+        '<div id="mcVerify" style="font-size:12px;margin-top:3px"></div></div>'+
     '</div><div class="grid g3" style="margin-top:14px">'+
       fld('mcStrn','STRN','text',c.strn)+
       sel('mcReg','Registration status',['Registered','Unregistered'],c.reg)+
@@ -1727,6 +1730,16 @@ function openClient(id){
     '</div>',
     [{t:'Cancel',cls:'ghost',f:'closeModal()'},
      {t:'Save buyer',cls:'',f:'saveClient('+(id?"'"+id+"'":'null')+')'}]);
+  // NTN auto-verify: type kar ke bahar click -> FBR se naam+status auto
+  setTimeout(function(){
+    var ntnF = $('mcNtn');
+    if(ntnF){
+      ntnF.onblur = function(){
+        var v = ntnF.value.trim();
+        if(v.length >= 7) verifyBuyer();  // 7+ digits par auto check
+      };
+    }
+  }, 100);
 }
 function saveClient(id){
   var name = $('mcName').value.trim();
@@ -2931,6 +2944,10 @@ function cloudLogin(bridgeUrl, u, p, err){
           ME = { user:d.user, name:d.user, role:'admin' };
           if(!DB.users || !DB.users.length){
             DB.users = [{ id:uid(), user:d.user, name:d.user, role:'admin', active:true, salt:'', hash:'' }];
+          }
+          // Admin ke features apply (client sirf wahi use kare - bridge se)
+          if(d.features && typeof d.features === 'object'){
+            DB.company.features = d.features;
           }
           // Admin ki company detail auto-fill (agar client ke paas nahi)
           if(d.companyDetail){
@@ -6872,7 +6889,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '13.4',
+  version: '14.6',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };

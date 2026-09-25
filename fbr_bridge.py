@@ -552,6 +552,26 @@ def admin_session_ok(tok):
     return True
 
 
+# Features jo admin de sakta (client ke liye)
+ADMIN_FEATURES = [
+    ("reports",       "Reports"),
+    ("returnSummary", "Tax Return Summary"),
+    ("clients",       "Buyers"),
+    ("items",         "Products"),
+    ("hs",            "HS Code Search"),
+    ("autoscenario",  "Auto Scenarios (FBR testing)"),
+    ("downloadAll",   "Download All (Excel/PDF)"),
+    ("bulkImport",    "Bulk Import"),
+    ("emailInvoice",  "Email Invoices"),
+    ("fbrProof",      "FBR Tax Proof"),
+    ("autoTax",       "Automatic Tax Rate"),
+    ("commercial",    "Commercial Invoice"),
+    ("data",          "Backup & Restore"),
+    ("users",         "User Management"),
+    ("audit",         "Activity Log"),
+]
+
+
 def admin_clients_view():
     """The list for the page. Tokens are never sent back in full."""
     out = []
@@ -559,17 +579,99 @@ def admin_clients_view():
         def tail(v):
             v = str(v or "")
             return ("set, ending " + v[-6:]) if len(v) > 6 else ("set" if v else "")
+        # client ke users (full.json se)
+        users_list = []
+        try:
+            fpath = os.path.join(DATA_DIR, cid + "_full.json")
+            if os.path.exists(fpath):
+                with open(fpath, "r", encoding="utf-8") as fh:
+                    fdata = json.load(fh)
+                for u in (fdata.get("users") or []):
+                    users_list.append({
+                        "user": u.get("user", ""),
+                        "name": u.get("name", ""),
+                        "role": u.get("role", ""),
+                        "active": bool(u.get("active", True)),
+                        "last": u.get("last", ""),
+                    })
+        except Exception:
+            pass
         out.append({
             "id": cid,
             "name": c.get("name", ""),
             "ntn": c.get("ntn", ""),
+            "strn": c.get("strn", ""),
+            "addr": c.get("addr", ""),
+            "phone": c.get("phone", ""),
+            "prov": c.get("prov", "SINDH"),
+            "email": c.get("email", ""),
+            "web": c.get("web", ""),
             "active": bool(c.get("active", True)),
+            "login_user": c.get("login_user", ""),
             "sandbox": tail(c.get("sandbox_token")),
             "production": tail(c.get("production_token")),
             "secret": tail(c.get("secret")),
             "added": c.get("added", ""),
+            "users": users_list,
+            "userCount": len(users_list),
+            "features": c.get("features", {}),
         })
     return out
+
+
+def admin_save_features(d):
+    """Admin: client ke features set (jo do wahi client use kare)."""
+    cid = str(d.get("id") or "").strip().lower()
+    feats = d.get("features")
+    if not isinstance(feats, dict):
+        return {"ok": False, "msg": "Invalid features."}
+    clients = load_clients()
+    if cid not in clients:
+        return {"ok": False, "msg": "Company not found."}
+    clients[cid]["features"] = feats
+    save_clients(clients)
+    return {"ok": True}
+
+
+def admin_toggle_active(d):
+    """Admin: company block/unblock (active on/off)."""
+    cid = str(d.get("id") or "").strip().lower()
+    clients = load_clients()
+    if cid not in clients:
+        return {"ok": False, "msg": "Company not found."}
+    clients[cid]["active"] = bool(d.get("active"))
+    save_clients(clients)
+    return {"ok": True, "active": clients[cid]["active"]}
+
+
+def admin_toggle_user(d):
+    """Admin: client ke ek user ko block/unblock."""
+    cid = str(d.get("id") or "").strip().lower()
+    uname = str(d.get("user") or "").strip().lower()
+    active = bool(d.get("active"))
+    fpath = os.path.join(DATA_DIR, cid + "_full.json")
+    try:
+        with open(fpath, "r", encoding="utf-8") as fh:
+            fdata = json.load(fh)
+    except Exception:
+        return {"ok": False, "msg": "No data for this company."}
+    found = False
+    for u in (fdata.get("users") or []):
+        if str(u.get("user", "")).lower() == uname:
+            u["active"] = active
+            found = True
+            break
+    if not found:
+        return {"ok": False, "msg": "User not found."}
+    tmp = fpath + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(fdata, fh, separators=(",", ":"))
+    os.replace(tmp, fpath)
+    try:
+        os.chmod(fpath, 0o600)
+    except OSError:
+        pass
+    return {"ok": True, "active": active}
 
 
 def admin_save_client(d):
@@ -611,6 +713,10 @@ def admin_save_client(d):
         c["secret"] = made
 
     # Client ka SOFTWARE LOGIN (username + password) - admin set kare
+    # Features - admin jo diye (client sirf wahi use kare)
+    if "features" in d and isinstance(d.get("features"), dict):
+        c["features"] = d.get("features")
+
     lu = str(d.get("loginUser") or "").strip().lower()
     lp = str(d.get("loginPass") or "").strip()
     if lu:
@@ -663,6 +769,9 @@ def admin_handle(path, req):
     if path == "/admin/list":    return {"ok": True, "clients": admin_clients_view()}
     if path == "/admin/save":    return admin_save_client(req.get("client") or {})
     if path == "/admin/delete":  return admin_delete_client(req.get("id"))
+    if path == "/admin/toggle":  return admin_toggle_active(req)
+    if path == "/admin/toggleuser": return admin_toggle_user(req)
+    if path == "/admin/features": return admin_save_features(req)
     if path == "/admin/lock":
         _sessions.pop(req.get("token"), None)
         return {"ok": True, "msg": "Locked."}
@@ -799,6 +908,7 @@ def client_login(cid, req):
             "session": tok,
             "mustChange": bool(c.get("login_mustchange", False)),
             "company": c.get("name", ""),
+            "features": c.get("features", {}),
             "companyDetail": {
                 "name": c.get("name", ""),
                 "ntn": c.get("ntn", ""),
@@ -1171,7 +1281,7 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
     <div class="help" id="hProd">Only after all the company's scenarios
      pass.</div></div>
 
-   <div class="field"><label>Shared secret</label>
+   <div class="field"><label>Shared secret <span class="small">optional — older setups only</span></label>
     <input type="text" id="fSecret" placeholder="leave blank and one is made for you">
     <div class="help">This must match what is typed on that company's FBR link
      screen.</div></div>
@@ -1306,12 +1416,113 @@ function loadList(){
           '<td>' + (x.active ? '<span class="pill on">on</span>'
                              : '<span class="pill off">off</span>') + '</td>' +
           '<td style="text-align:right;white-space:nowrap">' +
+            (x.userCount ? '<button class="ghost sm" onclick="showUsers(\'' + esc(x.id) + '\')">Users (' + x.userCount + ')</button> ' : '') +
+            '<button class="ghost sm" onclick="showFeatures(\'' + esc(x.id) + '\')">Features</button> ' +
+            '<button class="' + (x.active ? 'ghost' : 'primary') + ' sm" onclick="toggleActive(\'' + esc(x.id) + '\',' + (x.active ? 'false' : 'true') + ')">' +
+              (x.active ? 'Block' : 'Unblock') + '</button> ' +
             '<button class="ghost sm" onclick="editClient(\'' + esc(x.id) +
               '\')">Edit</button> ' +
             '<button class="danger sm" onclick="delClient(\'' + esc(x.id) + '\',\'' +
               esc(x.name) + '\')">Remove</button></td></tr>';
       }).join('') + '</table>';
     window._clients = c;
+  });
+}
+
+/* ---------- block/unblock + users ---------- */
+// ADMIN_FEATURES list (JS - server se match)
+var ADMIN_FEATURES = [
+  ['reports','Reports'],['returnSummary','Tax Return Summary'],['clients','Buyers'],
+  ['items','Products'],['hs','HS Code Search'],['autoscenario','Auto Scenarios'],
+  ['downloadAll','Download All (Excel/PDF)'],['bulkImport','Bulk Import'],
+  ['emailInvoice','Email Invoices'],['fbrProof','FBR Tax Proof'],['autoTax','Automatic Tax Rate'],
+  ['commercial','Commercial Invoice'],['data','Backup & Restore'],['users','User Management'],
+  ['audit','Activity Log']
+];
+function showFeatures(id){
+  var c = (window._clients || []).find(function(x){ return x.id === id; });
+  if(!c) return;
+  var feats = c.features || {};
+  var rows = ADMIN_FEATURES.map(function(f){
+    var on = feats[f[0]] !== false;  // default on
+    return '<div style="display:flex;align-items:center;justify-content:space-between;'+
+      'padding:10px 0;border-bottom:1px solid #eef1f5">'+
+      '<span style="font-size:13.5px">' + esc(f[1]) + '</span>'+
+      '<label style="position:relative;display:inline-block;width:42px;height:23px">'+
+        '<input type="checkbox" data-feat="' + f[0] + '"' + (on?' checked':'') + ' style="opacity:0;width:0;height:0">'+
+        '<span class="ftgl"></span></label></div>';
+  }).join('');
+  var html = '<h3 style="margin-bottom:6px">Features — ' + esc(c.name) + '</h3>'+
+    '<p style="font-size:12.5px;color:#666;margin-bottom:14px">Turn features on or off for this company. '+
+    'The client only sees what is turned on here.</p>'+
+    '<div id="featList">' + rows + '</div>'+
+    '<div style="margin-top:16px;text-align:right">'+
+      '<button class="ghost" onclick="closeFeatures()">Cancel</button> '+
+      '<button class="primary" onclick="saveFeatures(\'' + esc(id) + '\')">Save features</button></div>';
+  var box = document.getElementById('featBox');
+  if(!box){
+    box = document.createElement('div'); box.id = 'featBox';
+    box.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:999';
+    document.body.appendChild(box);
+    var st = document.createElement('style');
+    st.textContent = '.ftgl{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:23px;transition:.2s}.ftgl:before{content:"";position:absolute;height:17px;width:17px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}input:checked+.ftgl{background:#2563EB}input:checked+.ftgl:before{transform:translateX(19px)}';
+    document.head.appendChild(st);
+  }
+  box.innerHTML = '<div style="background:#fff;border-radius:10px;padding:24px;max-width:520px;width:90%;max-height:80vh;overflow:auto">' + html + '</div>';
+  box.style.display = 'flex';
+}
+function closeFeatures(){ var b=document.getElementById('featBox'); if(b) b.style.display='none'; }
+function saveFeatures(id){
+  var feats = {};
+  document.querySelectorAll('#featList input[data-feat]').forEach(function(inp){
+    feats[inp.getAttribute('data-feat')] = inp.checked;
+  });
+  post('/admin/features', { id: id, features: feats }).then(function(d){
+    if(d.ok){ say('Features saved', 'good'); closeFeatures(); loadList(); }
+    else say(d.msg || 'Failed', 'bad');
+  });
+}
+
+function toggleActive(id, active){
+  var word = active ? 'unblock' : 'block';
+  if(!confirm('Are you sure you want to ' + word + ' this company?')) return;
+  post('/admin/toggle', { id: id, active: active }).then(function(d){
+    if(d.ok){ say(active ? 'Company unblocked' : 'Company blocked', "good"); loadList(); }
+    else say(d.msg || 'Failed', "bad");
+  });
+}
+function showUsers(id){
+  var c = (window._clients || []).find(function(x){ return x.id === id; });
+  if(!c){ return; }
+  var users = c.users || [];
+  var rows = users.length ? users.map(function(u){
+    return '<tr><td><b>' + esc(u.user) + '</b></td>' +
+      '<td>' + esc(u.name || '') + '</td>' +
+      '<td>' + esc(u.role || '') + '</td>' +
+      '<td>' + (u.active ? '<span class="pill on">active</span>' : '<span class="pill off">blocked</span>') + '</td>' +
+      '<td style="text-align:right"><button class="' + (u.active ? 'ghost' : 'primary') + ' sm" ' +
+        'onclick="toggleUser(\'' + esc(id) + '\',\'' + esc(u.user) + '\',' + (u.active ? 'false' : 'true') + ')">' +
+        (u.active ? 'Block' : 'Unblock') + '</button></td></tr>';
+  }).join('') : '<tr><td colspan="5" style="color:#888">No users yet</td></tr>';
+  var html = '<h3 style="margin-bottom:12px">Users — ' + esc(c.name) + '</h3>' +
+    '<table style="width:100%"><tr><th>Username</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr>' +
+    rows + '</table>' +
+    '<div style="margin-top:14px;text-align:right"><button class="primary" onclick="closeUsers()">Close</button></div>';
+  var box = document.getElementById('usersBox');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'usersBox';
+    box.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:999';
+    document.body.appendChild(box);
+  }
+  box.innerHTML = '<div style="background:#fff;border-radius:10px;padding:24px;max-width:640px;width:90%;max-height:80vh;overflow:auto">' + html + '</div>';
+  box.style.display = 'flex';
+}
+function closeUsers(){ var b=document.getElementById('usersBox'); if(b) b.style.display='none'; }
+function toggleUser(id, user, active){
+  post('/admin/toggleuser', { id: id, user: user, active: active }).then(function(d){
+    if(d.ok){ say(active ? 'User unblocked' : 'User blocked', "good"); loadList(); setTimeout(function(){ showUsers(id); }, 300); }
+    else say(d.msg || 'Failed', "bad");
   });
 }
 
@@ -1338,6 +1549,15 @@ function editClient(id){
   EDITING = id;
   $('formTitle').textContent = 'Edit ' + x.name;
   $('fName').value = x.name; $('fId').value = x.id; $('fNtn').value = x.ntn || '';
+  // Poori detail fill (edit mein khali na ho)
+  if($('fStrn')) $('fStrn').value = x.strn || '';
+  if($('fAddr')) $('fAddr').value = x.addr || '';
+  if($('fPhone')) $('fPhone').value = x.phone || '';
+  if($('fProv')) $('fProv').value = x.prov || 'SINDH';
+  if($('fEmail')) $('fEmail').value = x.email || '';
+  if($('fWeb')) $('fWeb').value = x.web || '';
+  if($('fLoginUser')) $('fLoginUser').value = x.login_user || '';
+  if($('fLoginPass')){ $('fLoginPass').value = ''; $('fLoginPass').placeholder = x.login_user ? 'set — leave blank to keep' : 'set an initial password'; }
   $('fId').disabled = true;
   $('fActive').checked = !!x.active;
   /* tokens are never sent back in full, so blank means "keep what is stored" */
