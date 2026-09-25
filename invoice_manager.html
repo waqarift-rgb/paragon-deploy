@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 19.5 — FBR Digital Invoicing
+   Invoice Manager 19.7 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.5 · Copy Fix · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.7 · SN001 Buyer · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -8060,7 +8060,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '19.5',
+  version: '19.7',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
@@ -10734,6 +10734,17 @@ function openScenarioPicker(){
         'Read the codes</button>'+
       '<span id="scnPasteMsg" style="font-size:12px;margin-left:9px"></span>'+
     '</div>'+
+    '<div style="background:#EDF4FF;border:1px solid #C7DBF5;'+
+      'border-radius:3px;padding:11px 13px;margin-bottom:14px">'+
+      '<div style="font-size:12.5px;font-weight:600;margin-bottom:5px;color:#1B4F9C">'+
+        'Or let the software find them for you</div>'+
+      '<div style="font-size:12px;color:var(--ink-3);line-height:1.6;'+
+        'margin-bottom:7px">Click below and the software will ask FBR which '+
+        'scenarios your business is assigned — no need to copy anything.</div>'+
+      '<button class="btn sm" style="background:#2563EB" onclick="scnAutoDetect()" id="scnAutoBtn">'+
+        'Detect my scenarios from FBR</button>'+
+      '<span id="scnAutoMsg" style="font-size:12px;margin-left:9px"></span>'+
+    '</div>'+
 
     '<div style="display:flex;gap:8px;margin-bottom:10px">'+
       '<button class="btn sm ghost" onclick="scnPickAll(1)">Tick all</button>'+
@@ -10763,6 +10774,55 @@ function openScenarioPicker(){
 /* Pull SN codes out of whatever was pasted. IRIS lays the table out in columns,
    but a copy can arrive as one line, as rows, or with the codes buried in
    sentences, so only the codes themselves are trusted. */
+/* Auto-detect assigned scenarios - validate 28, dekho kaunse valid */
+function scnAutoDetect(){
+  if(!DB.fbr || !DB.fbr.url){ toast('Connect to FBR first (enter your token)','bad'); return; }
+  var btn = $('scnAutoBtn'), msg = $('scnAutoMsg');
+  if(btn){ btn.disabled = true; btn.textContent = 'Asking FBR…'; }
+  var all = SCENARIOS_ALL.map(function(s){ return s[0]; });
+  var assigned = [], done = 0;
+  function checkOne(i){
+    if(i >= all.length){
+      // sab check ho gaye - assigned set karo
+      if(btn){ btn.disabled = false; btn.textContent = 'Detect my scenarios from FBR'; }
+      if(assigned.length){
+        DB.fbr.scenarios = assigned;
+        save();
+        if(msg){ msg.style.color = 'var(--green)'; msg.textContent = 'Found ' + assigned.length + ' assigned. Saved.'; }
+        // checkboxes update
+        closeModal(); setTimeout(openScenarioPicker, 300);
+        toast('FBR assigned ' + assigned.length + ' scenarios to you','good');
+      } else {
+        if(msg){ msg.style.color = 'var(--amber)'; msg.textContent = 'Could not detect — please paste from IRIS instead.'; }
+      }
+      return;
+    }
+    var code = all[i];
+    if(msg){ msg.style.color = 'var(--ink-3)'; msg.textContent = 'Checking ' + code + ' (' + (i+1) + '/' + all.length + ')…'; }
+    // build minimal scenario invoice + VALIDATE (submit nahi)
+    var cfgMap = {}; SCENARIOS_ALL.forEach(function(s){ cfgMap[s[0]] = s; });
+    var s = cfgMap[code];
+    var testInv = {
+      no:'DETECT', date:today(), type:'Sale Invoice',
+      buyer:{ name:'TEST', ntn:'1000000000000', prov:'SINDH', addr:'Karachi', reg:'Unregistered' },
+      lines:[{ desc:'Test', hs:'8443.3910', unit:'Numbers, pieces, units', qty:1, rate:100, excl:100, tax:18, tamt:18, total:118, fbrx:{} }],
+      sub:100, tax:18, disc:0, total:118, scn:code, saleType:(s?s[2]:'Goods at standard rate (default)')
+    };
+    var pl = fbrPayload(testInv);
+    pl.scenarioId = code;
+    callBridge({ action:'validate', invoice: pl, meta:{ no:'DETECT-'+code } })
+      .then(function(d){
+        var errs = (d.errors||[]).join('; ') || d.msg || '';
+        // 0205/scenario not valid = NOT assigned; sab aur = assigned (chahe HS/tax error ho)
+        var notAssigned = /0205|not valid for|not allotted|scenario.*not/i.test(errs);
+        if(!notAssigned) assigned.push(code);
+        checkOne(i+1);
+      })
+      .catch(function(){ checkOne(i+1); });  // network err - skip, agla
+  }
+  checkOne(0);
+}
+
 function scnFromPaste(){
   var box = $('scnPaste'), msg = $('scnPasteMsg');
   var text = (box && box.value) || '';
@@ -11440,10 +11500,11 @@ function findValidHs(cfg, onStep){
 function buildScenarioInvoice(cfg, hs, isTest){
   // Test buyer NTN - seller ke NTN se ALAG (self-invoicing FBR allow nahi karta)
   var sellerNtn = ntnClean((DB.company && DB.company.ntn) || '');
-  var regBuyerNtn = '4666988';
-  // agar seller ka NTN test buyer se same - to alag NTN use karo
-  if(ntnClean(regBuyerNtn) === sellerNtn){ regBuyerNtn = '0788762'; }
+  // Registered buyer NTN - FBR sandbox ka valid registered test NTN
+  // (SN001 needs registered-to-registered; 1000000000000 is unregistered)
+  var regBuyerNtn = '0786909';   // FBR sandbox registered test NTN
   if(ntnClean(regBuyerNtn) === sellerNtn){ regBuyerNtn = '1234567'; }
+  if(ntnClean(regBuyerNtn) === sellerNtn){ regBuyerNtn = '0788762'; }
   var unregBuyerNtn = cfg._buyerNtn || '1000000000000';
   if(ntnClean(unregBuyerNtn) === sellerNtn){ unregBuyerNtn = '9999999999999'; }
   var buyer = cfg.buyerReg === 'Unregistered'
