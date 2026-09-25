@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 19.4 — FBR Digital Invoicing
+   Invoice Manager 19.5 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.4 · FED Formula · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.5 · Copy Fix · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -8060,7 +8060,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '19.4',
+  version: '19.5',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
@@ -11497,12 +11497,28 @@ function asCopyLog(){
   if(!el){ toast('No log yet','bad'); return; }
   var text = el.innerText || el.textContent || '';
   if(!text.trim()){ toast('Log is empty','bad'); return; }
-  // clipboard try
-  var copied = false;
-  if(navigator.clipboard && navigator.clipboard.writeText){
+  // Method 1: modern clipboard (HTTPS only)
+  if(navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext){
     navigator.clipboard.writeText(text).then(function(){ toast('Log copied!','good'); })
-      .catch(function(){ showLogPopup(text); });
-  } else { showLogPopup(text); }
+      .catch(function(){ copyViaTextarea(text); });
+    return;
+  }
+  // Method 2: execCommand fallback (works on HTTP)
+  copyViaTextarea(text);
+}
+function copyViaTextarea(text){
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    ta.setSelectionRange(0, text.length);
+    var ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if(ok){ toast('Log copied!','good'); }
+    else { showLogPopup(text); }
+  } catch(e){ showLogPopup(text); }
 }
 function showLogPopup(text){
   // ek popup jismein textarea - user select-all karke copy kare, ya download
