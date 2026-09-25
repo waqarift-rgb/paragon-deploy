@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 14.6 — FBR Digital Invoicing
+   Invoice Manager 14.7 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 14.6 · NTN Auto · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 14.7 · Full Audit · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -2966,8 +2966,13 @@ function cloudLogin(bridgeUrl, u, p, err){
           if(d.mustChange){ setTimeout(function(){ forceCloudPassword(); }, 600); }
         });
       } else {
-        // Server login fail - shayad yeh client ka STAFF user hai (client-admin ne banaya)
-        // Local users check karo (client ke apne data mein)
+        // Server ne specific error diya (block/setup) - wo dikhao
+        var msg = (d && d.msg) || '';
+        if(/switched off|blocked|no login has been set up/i.test(msg)){
+          err.textContent = msg;  // block/setup - staff try mat karo
+          return;
+        }
+        // warna - shayad client ka STAFF user (client-admin ne banaya) - local check
         tryStaffLogin(u, p, err);
       }
     })
@@ -6889,7 +6894,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '14.6',
+  version: '14.7',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
