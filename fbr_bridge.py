@@ -949,6 +949,79 @@ def client_change_pass(cid, req):
     return {"ok": True}
 
 
+def test_client_smtp(cid, req):
+    """SMTP connection test - sirf login check (email na bheje)."""
+    import smtplib, ssl
+    smtp_host = str(req.get("smtpHost") or "").strip()
+    smtp_port = int(req.get("smtpPort") or 587)
+    smtp_user = str(req.get("smtpUser") or "").strip()
+    smtp_pass = str(req.get("smtpPass") or "")
+    if not (smtp_host and smtp_user and smtp_pass):
+        return {"ok": False, "msg": "Fill your email, password and mail server first."}
+    try:
+        ctx = ssl.create_default_context()
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx, timeout=15) as s:
+                s.login(smtp_user, smtp_pass)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as s:
+                s.starttls(context=ctx)
+                s.login(smtp_user, smtp_pass)
+        return {"ok": True, "msg": "Connected! Your email is set up correctly."}
+    except smtplib.SMTPAuthenticationError:
+        return {"ok": False, "msg": "Login failed — check your email and app password."}
+    except (smtplib.SMTPConnectError, OSError):
+        return {"ok": False, "msg": "Could not reach the mail server — check the host and port."}
+    except Exception as e:
+        return {"ok": False, "msg": "Connection failed: " + str(e)[:100]}
+
+
+def send_client_email(cid, req):
+    """Client ki apni email (SMTP) se invoice bheje."""
+    import smtplib, ssl
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+
+    smtp_host = str(req.get("smtpHost") or "").strip()
+    smtp_port = int(req.get("smtpPort") or 587)
+    smtp_user = str(req.get("smtpUser") or "").strip()
+    smtp_pass = str(req.get("smtpPass") or "")
+    to = str(req.get("to") or "").strip()
+    cc = str(req.get("cc") or "").strip()
+    subject = str(req.get("subject") or "Invoice")
+    html = str(req.get("html") or "")
+    from_name = str(req.get("fromName") or smtp_user)
+
+    if not (smtp_host and smtp_user and smtp_pass and to):
+        return {"ok": False, "msg": "Email is not set up. Add your email settings on the Company page."}
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = from_name + " <" + smtp_user + ">"
+    msg["To"] = to
+    if cc:
+        msg["Cc"] = cc
+    msg.attach(MIMEText(html, "html"))
+
+    recipients = [to] + ([cc] if cc else [])
+    try:
+        ctx = ssl.create_default_context()
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx, timeout=20) as s:
+                s.login(smtp_user, smtp_pass)
+                s.sendmail(smtp_user, recipients, msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as s:
+                s.starttls(context=ctx)
+                s.login(smtp_user, smtp_pass)
+                s.sendmail(smtp_user, recipients, msg.as_string())
+        return {"ok": True, "sent": to}
+    except smtplib.SMTPAuthenticationError:
+        return {"ok": False, "msg": "Email login failed. Check your email and app password."}
+    except Exception as e:
+        return {"ok": False, "msg": "Could not send: " + str(e)[:120]}
+
+
 def fulldata_save(cid, req):
     """Client ka POORA data server par save (users, company, invoices, sab)."""
     data = req.get("data")
@@ -1096,6 +1169,8 @@ def handle(req):
     if action == "stats":     return store_stats(cid)
     if action == "savedata":  return fulldata_save(cid, req)
     if action == "loaddata":  return fulldata_load(cid, req)
+    if action == "sendemail": return send_client_email(cid, req)
+    if action == "testsmtp": return test_client_smtp(cid, req)
     if action == "clientlogin": return client_login(cid, req)
     if action == "clientchangepass": return client_change_pass(cid, req)
     if action == "transtypes": return _get(c, FBR_TRANSTYPE_URL, {}, env, "types")

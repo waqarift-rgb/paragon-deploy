@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 14.7 — FBR Digital Invoicing
+   Invoice Manager 15.2 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 14.7 · Full Audit · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 15.2 · Email Test · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -921,6 +921,46 @@ tbody tr:hover{background:var(--surface-2)}
                 <input id="coDefTerms" type="text" placeholder="e.g. 30 days from invoice date">
                 <div class="help">Pre-filled on every new invoice</div></div>
 
+            </div>
+
+            <div class="section-rule">Email Settings — send invoices from your own email</div>
+            <div style="font-size:12.5px;color:var(--ink-2);line-height:1.7;margin:4px 0 14px">
+              Add your email here to send invoices directly from the software, under your own address.
+              Choose your email provider below and the server settings fill in automatically.
+            </div>
+            <div class="grid g2">
+              <div class="field"><label>Email provider</label>
+                <select id="coSmtpProvider" onchange="smtpProviderPick()">
+                  <option value="">— choose your provider —</option>
+                  <option value="gmail">Gmail / Google Workspace</option>
+                  <option value="outlook">Outlook / Office 365 / Hotmail</option>
+                  <option value="yahoo">Yahoo Mail</option>
+                  <option value="zoho">Zoho Mail</option>
+                  <option value="custom">Other / Custom</option>
+                </select>
+                <div class="help" id="smtpProviderHelp">Pick your provider to auto-fill the mail server</div></div>
+              <div class="field"><label>Your email address</label>
+                <input id="coSmtpUser" type="email" placeholder="you@company.com">
+                <div class="help">Invoices will be sent from this address</div></div>
+            </div>
+            <div class="grid g2" style="margin-top:12px">
+              <div class="field"><label>Email password / App password</label>
+                <input id="coSmtpPass" type="password" placeholder="App password (see note below)">
+                <div class="help" id="smtpPassHelp">Stored securely on your server, never shown again</div></div>
+              <div class="field"><label>&nbsp;</label>
+                <button type="button" class="btn" style="width:100%" onclick="testSmtpConnect()">Test connection</button>
+                <div class="help">Check your email works before sending invoices</div></div>
+            </div>
+            <div id="smtpAppPwNote" style="display:none;margin-top:10px;padding:12px 14px;background:#FEF6EC;border:1px solid #F5D9A8;border-radius:8px;font-size:12px;color:#8A6420;line-height:1.6"></div>
+            <div class="grid g2" style="margin-top:12px">
+              <div class="field"><label>Mail server (SMTP host)</label>
+                <input id="coSmtpHost" type="text" placeholder="fills in automatically"></div>
+              <div class="field"><label>Port</label>
+                <input id="coSmtpPort" type="number" placeholder="587" value="587">
+                <div class="help">587 (TLS) or 465 (SSL)</div></div>
+            </div>
+            <div style="margin-top:10px">
+              <span id="emailTestResult" style="font-size:12.5px"></span>
             </div>
 
             <div class="section-rule">Commercial Invoice</div>
@@ -4743,7 +4783,7 @@ document.addEventListener('change', function(e){
 
 /* ---------- hooks ---------- */
 var _goH = go;
-go = function(p){ _goH(p); if(p === 'hs') drawHs(); };
+go = function(p){ _goH(p); /* HS page handled by drawHsPage override below */ };
 
 var _bootH = boot;
 boot = function(){ hsInit(); unitsInit(); _bootH(); hsFillList(); };
@@ -5003,6 +5043,13 @@ fillCompany = function(){
   if($('coDefTax')) $('coDefTax').value = s.defTax || '';
   if($('coDefTerms')) $('coDefTerms').value = s.defTerms || '';
   // Commercial invoice settings load
+  // Email SMTP settings load
+  var sm = DB.company.smtp || {};
+  if($('coSmtpUser')) $('coSmtpUser').value = sm.user || '';
+  if($('coSmtpPass')) $('coSmtpPass').value = '';  // password khali (security)
+  if($('coSmtpHost')) $('coSmtpHost').value = sm.host || '';
+  if($('coSmtpPort')) $('coSmtpPort').value = sm.port || 587;
+
   var ci = DB.company.commercial || {};
   if($('coCiOn')) $('coCiOn').checked = !!ci.on;
   if($('coCiBoth')) $('coCiBoth').checked = !!ci.both;
@@ -5036,6 +5083,13 @@ var _saveCoHs = saveCompany;
 saveCompany = function(){
   if($('coHs')) DB.company.defaultHs = $('coHs').value.trim();
   // Invoice settings save
+  // Email SMTP settings save (password blank = keep old)
+  DB.company.smtp = DB.company.smtp || {};
+  if($('coSmtpUser')) DB.company.smtp.user = $('coSmtpUser').value.trim();
+  if($('coSmtpHost')) DB.company.smtp.host = $('coSmtpHost').value.trim();
+  if($('coSmtpPort')) DB.company.smtp.port = parseInt($('coSmtpPort').value) || 587;
+  if($('coSmtpPass') && $('coSmtpPass').value){ DB.company.smtp.pass = $('coSmtpPass').value; }
+
   // Commercial invoice - password lock check
   var ci = DB.company.commercial || {};
   if(ci.lockHash){
@@ -6817,36 +6871,148 @@ function emailInvoice(id){
     '<div style="margin-top:14px;font-size:12.5px;color:var(--ink-2);line-height:1.7">'+
       'The invoice is sent with <b>'+esc(DB.company.name||'your company')+'</b> as the sender name, '+
       'and replies go to <b>'+esc(DB.company.email||'your company email')+'</b>. '+
-      'Set your email on the Company page so it appears correctly.'+
+      'When you click Send, your own email app (Gmail, Outlook, etc.) opens with everything filled in — '+
+      'you send it from your own email address.'+
     '</div>'+
     (to ? '' : '<div style="margin-top:12px;font-size:12.5px;color:var(--amber)">'+
       'This buyer has no email address saved. Add one on the Buyers page so it fills in next time.</div>'),
     [{t:'Cancel',cls:'ghost',f:'closeModal()'},
-     {t:'Send',cls:'',f:'emailSend(\'' + id + '\')'}]);
+     {t:'Open my email app',cls:'',f:'emailSend(\'' + id + '\')'}]);
+}
+
+/* Email provider chunte hi host/port + app-password guide auto */
+var SMTP_PROVIDERS = {
+  gmail:   { host:'smtp.gmail.com', port:587,
+    note:'<b>Gmail needs an App Password</b> (your normal password will not work):<br>'+
+         '1. Go to <b>myaccount.google.com</b> → Security<br>'+
+         '2. Turn on <b>2-Step Verification</b> (if not already)<br>'+
+         '3. Search <b>App passwords</b>, create one for &ldquo;Mail&rdquo;<br>'+
+         '4. Copy the 16-letter password and paste it above' },
+  outlook: { host:'smtp.office365.com', port:587,
+    note:'<b>Outlook / Office 365:</b> Use your normal email password. '+
+         'If it fails, create an App Password at account.microsoft.com → Security → Advanced security options.' },
+  yahoo:   { host:'smtp.mail.yahoo.com', port:587,
+    note:'<b>Yahoo needs an App Password:</b><br>'+
+         'account.yahoo.com → Security → Generate app password → for &ldquo;Mail&rdquo;. Paste it above.' },
+  zoho:    { host:'smtp.zoho.com', port:587,
+    note:'<b>Zoho Mail:</b> Use your normal password, or an App Password from '+
+         'Zoho Account → Security → App Passwords if 2FA is on.' },
+  custom:  { host:'', port:587,
+    note:'<b>Custom / other provider:</b> Ask your email provider or IT for the SMTP host and port. '+
+         'Common ports are 587 (TLS) or 465 (SSL).' }
+};
+function smtpProviderPick(){
+  var p = $('coSmtpProvider') ? $('coSmtpProvider').value : '';
+  var cfg = SMTP_PROVIDERS[p];
+  var note = $('smtpAppPwNote');
+  if(!cfg){ if(note) note.style.display='none'; return; }
+  if($('coSmtpHost') && cfg.host) $('coSmtpHost').value = cfg.host;
+  if($('coSmtpPort')) $('coSmtpPort').value = cfg.port;
+  if(note){ note.innerHTML = cfg.note; note.style.display = 'block'; }
+  if($('smtpPassHelp')) $('smtpPassHelp').textContent =
+    (p==='gmail'||p==='yahoo') ? 'Use an App Password (see the note below)' : 'Your email password or an App Password';
+}
+
+/* Test connection - sirf login check (fast, email na bheje) */
+function testSmtpConnect(){
+  var sm = { user: $('coSmtpUser')?$('coSmtpUser').value.trim():'',
+             pass: $('coSmtpPass')?$('coSmtpPass').value:(DB.company.smtp&&DB.company.smtp.pass)||'',
+             host: $('coSmtpHost')?$('coSmtpHost').value.trim():'',
+             port: $('coSmtpPort')?parseInt($('coSmtpPort').value)||587:587 };
+  var out = $('emailTestResult');
+  if(!sm.user || !sm.pass || !sm.host){ out.innerHTML = '<span style="color:var(--red)">Fill your email, password and mail server first.</span>'; return; }
+  out.innerHTML = '<span style="color:var(--ink-2)">Testing connection…</span>';
+  callBridge({ action:'testsmtp', smtpHost:sm.host, smtpPort:sm.port, smtpUser:sm.user, smtpPass:sm.pass })
+  .then(function(d){
+    if(d && d.ok){
+      out.innerHTML = '<span style="color:var(--green)">&#10003; ' + esc(d.msg||'Connected!') +
+        '</span> <button class="btn sm ghost" style="margin-left:8px" onclick="testEmail()">Send a test email too</button>';
+    } else {
+      out.innerHTML = '<span style="color:var(--red)">&#10007; ' + esc(d && d.msg || 'Failed') + '</span>';
+    }
+  })
+  .catch(function(e){ out.innerHTML = '<span style="color:var(--red)">&#10007; ' + esc(e.message||'Could not reach server') + '</span>'; });
+}
+
+function testEmail(){
+  var sm = { user: $('coSmtpUser')?$('coSmtpUser').value.trim():'',
+             pass: $('coSmtpPass')?$('coSmtpPass').value:(DB.company.smtp&&DB.company.smtp.pass)||'',
+             host: $('coSmtpHost')?$('coSmtpHost').value.trim():'',
+             port: $('coSmtpPort')?parseInt($('coSmtpPort').value)||587:587 };
+  var out = $('emailTestResult');
+  if(!sm.user || !sm.pass || !sm.host){ out.innerHTML = '<span style="color:var(--red)">Fill your email, password and mail server first.</span>'; return; }
+  out.innerHTML = 'Sending test…';
+  callBridge({ action:'sendemail', smtpHost:sm.host, smtpPort:sm.port, smtpUser:sm.user, smtpPass:sm.pass,
+    to: sm.user, subject:'Test email from Invoice Manager', fromName: DB.company.name || sm.user,
+    html: '<p>This is a test email. Your email settings are working correctly.</p>' })
+  .then(function(d){
+    if(d && d.ok){ out.innerHTML = '<span style="color:var(--green)">&#10003; Test email sent to ' + esc(sm.user) + ' — check your inbox.</span>'; }
+    else { out.innerHTML = '<span style="color:var(--red)">' + esc(d && d.msg || 'Failed') + '</span>'; }
+  })
+  .catch(function(e){ out.innerHTML = '<span style="color:var(--red)">' + esc(e.message||'Failed') + '</span>'; });
 }
 
 function emailSend(id){
   var v = DB.invoices.find(function(x){ return x.id === id; });
   var to = $('emTo').value.trim();
   if(!to || to.indexOf('@') < 1) return toast('Enter a valid email address','bad');
-  var bridgeUp = (DB.fbr && DB.fbr.url) || window._autoBridge || window._cloudSession;
-  if(!bridgeUp) return toast('Not connected. Sign in again.','bad');
 
   var sub = $('emSub').value.trim(), cc = $('emCc').value.trim();
-  toast('Sending…');
 
-  callBridge({ action:'email', to:to, cc:cc, subject:sub,
-    fromName: DB.company.name || 'Invoices',
-    replyTo: DB.company.email || '',
-    html: invoiceEmailHtml(v) })
+  // Agar SMTP set hai - software se seedha bhejo (client ki apni email se)
+  var sm = DB.company.smtp || {};
+  if(sm.user && sm.pass && sm.host){
+    toast('Sending from ' + sm.user + '…');
+    callBridge({ action:'sendemail', smtpHost:sm.host, smtpPort:sm.port||587,
+      smtpUser:sm.user, smtpPass:sm.pass, to:to, cc:cc, subject:sub,
+      fromName: DB.company.name || sm.user, html: invoiceEmailHtml(v) })
+    .then(function(d){
+      if(!d || !d.ok) throw new Error(d && d.msg || 'Could not send');
+      closeModal();
+      v.emailedTo = to; v.emailedAt = new Date().toISOString();
+      _dbSave(); if(typeof drawReg==='function') drawReg();
+      logIt('invoice','Invoice emailed', v.no + ' → ' + to);
+      toast('Sent to ' + to + ' from your email','good');
+    })
+    .catch(function(e){ toast(e.message || 'Could not send','bad'); });
+    return;
+  }
+
+  // SMTP nahi - email app khole (mailto fallback)
+  var body = 'Dear ' + (v.buyer.name || 'Customer') + ',%0D%0A%0D%0A' +
+    'Please find your invoice ' + (v.no || '') + ' dated ' + dmy(v.date) + '.%0D%0A%0D%0A' +
+    'Invoice #: ' + (v.no || '') + '%0D%0A' +
+    'Amount: RS. ' + money(v.total) + '%0D%0A' +
+    ((v.fbr && v.fbr.irn) ? 'FBR Invoice #: ' + v.fbr.irn + '%0D%0A' : '') +
+    '%0D%0AThank you for your business.%0D%0A%0D%0A' +
+    (DB.company.name || '') + '%0D%0A' +
+    (DB.company.phone ? 'Phone: ' + DB.company.phone + '%0D%0A' : '') +
+    (DB.company.email ? 'Email: ' + DB.company.email : '');
+
+  var mailto = 'mailto:' + encodeURIComponent(to) +
+    '?subject=' + encodeURIComponent(sub) +
+    (cc ? '&cc=' + encodeURIComponent(cc) : '') +
+    '&body=' + body;
+
+  // client ke email app mein khulo (apni email se bhejenge)
+  window.location.href = mailto;
+
+  closeModal();
+  v.emailedTo = to; v.emailedAt = new Date().toISOString();
+  _dbSave(); drawReg();
+  logIt('invoice','Invoice email prepared', v.no + ' → ' + to);
+  toast('Your email app is opening — send it from your own email','good');
+  return;
+
+  // (old bridge send - disabled)
+  /* eslint-disable */
+  false && callBridge({ action:'email', to:to, cc:cc, subject:sub, fromName: DB.company.name, replyTo: DB.company.email, html: invoiceEmailHtml(v) })
   .then(function(d){
     if(!d || !d.ok) throw new Error(d && d.msg || 'Could not send');
     closeModal();
     v.emailedTo = to; v.emailedAt = new Date().toISOString();
     _dbSave(); drawReg();
-    logIt('invoice','Invoice emailed', v.no + ' → ' + to);
-    toast('Sent to ' + to +
-      (d.remainingToday > -1 ? ' · ' + d.remainingToday + ' emails left today' : ''),'good');
+    toast('Sent','good');
   })
   .catch(function(e){ toast(e.message,'bad'); });
 }
@@ -6894,7 +7060,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '14.7',
+  version: '15.2',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
