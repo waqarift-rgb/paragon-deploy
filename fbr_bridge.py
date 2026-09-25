@@ -666,6 +666,8 @@ def public_signup(req):
         "businessNature": str(d.get("businessNature") or "").strip(),
         "contactPerson": str(d.get("contactPerson") or "").strip(),
         "preferredUser": str(d.get("preferredUser") or "").strip(),
+        "logo": str(d.get("logo") or ""),
+        "token": str(d.get("token") or "").strip(),
         "submitted": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "status": "pending"
     }
@@ -752,12 +754,28 @@ input,select,textarea{width:100%;padding:10px 12px;border:1px solid #d0d7de;bord
 <input id="s_user" type="text" placeholder="e.g. yourcompany (letters and numbers)">
 <div class="help">You will use this to sign in. We will confirm it and send your password.</div>
 
+<label>Company logo <span style="color:#8794a3;font-weight:400">(optional)</span></label>
+<input id="s_logo" type="file" accept="image/*" onchange="pickLogo(this)">
+<div id="s_logoPreview" style="margin-top:8px"></div>
+<div class="help">Appears on your invoices. You can add or change it later.</div>
+
+<label>FBR Sandbox Token <span style="color:#8794a3;font-weight:400">(optional)</span></label>
+<textarea id="s_token" rows="2" placeholder="Paste your FBR token here if you have it"></textarea>
+<div class="help" style="line-height:1.7">Don&rsquo;t have your FBR token or not sure where to find it? No problem &mdash; leave this blank. We will guide you, or fetch it for you from FBR using your IRIS login. Just let us know when we set up your account.</div>
+
 <button class="btn" onclick="submitSignup()">Submit my details</button>
 <div id="msg"></div>
 </div></div>
 <div class="foot">Paragon Business Solution · sales@pbsolution.com.pk · 021-34536010</div>
 </div>
 <script>
+function pickLogo(input){
+  var file=input.files&&input.files[0]; if(!file) return;
+  var r=new FileReader();
+  r.onload=function(e){ window._signupLogo=e.target.result;
+    document.getElementById('s_logoPreview').innerHTML='<img src="'+e.target.result+'" style="max-height:50px;border:1px solid #d0d7de;border-radius:4px;padding:2px">'; };
+  r.readAsDataURL(file);
+}
 function submitSignup(){
   var g=function(id){var e=document.getElementById(id);return e?e.value.trim():'';};
   var name=g('s_name'), ntn=g('s_ntn'), prov=g('s_province'), phone=g('s_phone'), email=g('s_email');
@@ -767,7 +785,8 @@ function submitSignup(){
   m.className=''; m.style.display='none';
   var data={name:name,ntn:ntn,strn:g('s_strn'),address:g('s_address'),province:prov,
     businessNature:g('s_nature'),phone:phone,email:email,website:g('s_website'),
-    contactPerson:g('s_contact'),preferredUser:g('s_user')};
+    contactPerson:g('s_contact'),preferredUser:g('s_user'),
+    logo:window._signupLogo||'',token:g('s_token')};
   fetch('/signup/submit',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(data)})
     .then(function(r){return r.json();})
     .then(function(d){
@@ -1845,7 +1864,9 @@ function openSignups(){
           'Phone: '+esc(x.phone||'-')+' · Email: '+esc(x.email||'-')+'<br>'+
           (x.businessNature?'Nature: '+esc(x.businessNature)+'<br>':'')+
           (x.contactPerson?'Contact: '+esc(x.contactPerson)+'<br>':'')+
-          (x.preferredUser?'Wants username: <b>'+esc(x.preferredUser)+'</b>':'')+
+          (x.preferredUser?'Wants username: <b>'+esc(x.preferredUser)+'</b><br>':'')+
+          (x.logo?'&#10003; Logo uploaded  ':'')+
+          (x.token?'&#10003; FBR token provided':'<span style="color:#D97706">No FBR token \u2014 will guide/fetch</span>')+
         '</div>'+
         '<div style="margin-top:10px;text-align:right">'+
           '<button class="primary sm" onclick=\'createFromSignup('+JSON.stringify(JSON.stringify(x))+')\'>Create company</button> '+
@@ -1867,9 +1888,12 @@ function createFromSignup(json){
     set('fPhone',x.phone); set('fEmail',x.email); set('fWeb',x.website);
     set('fLoginUser',x.preferredUser);
     if(document.getElementById('fProv')&&x.province){ document.getElementById('fProv').value=x.province; }
+    // FBR token (agar client ne diya)
+    if(document.getElementById('fSandbox')&&x.token){ document.getElementById('fSandbox').value=x.token; }
     // id suggest
     if(document.getElementById('fId')&&x.preferredUser){ document.getElementById('fId').value=x.preferredUser.toLowerCase().replace(/[^a-z0-9]/g,''); }
-    say('Details loaded from registration. Set a login password and features, then Save.','good');
+    var extra = x.token ? ' FBR token was provided.' : ' No FBR token yet \u2014 fetch it from FBR or guide the client.';
+    say('Details loaded from registration.' + extra + ' Set a login password and features, then Save.','good');
   }, 300);
 }
 function delSignup(id){
@@ -2321,7 +2345,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({"ok": False, "msg": "Could not read the request: %s" % e}, 400)
         path = self.path.split("?")[0].rstrip("/") or "/"
         try:
-            if path.startswith("/admin"):
+            if path == "/signup/submit":
+                self._send(public_signup(req))
+            elif path.startswith("/admin"):
                 self._send(admin_handle(path, req))
             else:
                 self._send(handle(req))
