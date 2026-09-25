@@ -628,6 +628,159 @@ def admin_clients_view():
     return out
 
 
+SIGNUPS_PATH = os.path.join(HERE, "signups.json")
+
+def load_signups():
+    try:
+        with open(SIGNUPS_PATH, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        return []
+
+def save_signups(s):
+    tmp = SIGNUPS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(s, fh, indent=2)
+    os.replace(tmp, SIGNUPS_PATH)
+    try:
+        os.chmod(SIGNUPS_PATH, 0o600)
+    except OSError:
+        pass
+
+def public_signup(req):
+    """Client online form submit (public - no auth). Pending list mein jaye."""
+    d = req or {}
+    name = str(d.get("name") or "").strip()
+    if not name:
+        return {"ok": False, "msg": "Company name is required."}
+    entry = {
+        "id": secrets.token_hex(8),
+        "name": name,
+        "ntn": str(d.get("ntn") or "").strip(),
+        "strn": str(d.get("strn") or "").strip(),
+        "address": str(d.get("address") or "").strip(),
+        "phone": str(d.get("phone") or "").strip(),
+        "email": str(d.get("email") or "").strip(),
+        "province": str(d.get("province") or "").strip(),
+        "website": str(d.get("website") or "").strip(),
+        "businessNature": str(d.get("businessNature") or "").strip(),
+        "contactPerson": str(d.get("contactPerson") or "").strip(),
+        "preferredUser": str(d.get("preferredUser") or "").strip(),
+        "submitted": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "status": "pending"
+    }
+    signups = load_signups()
+    signups.insert(0, entry)
+    save_signups(signups)
+    return {"ok": True, "msg": "Thank you! Your details have been received. We will set up your account and share your login shortly."}
+
+def admin_signups_view():
+    return load_signups()
+
+def admin_signup_delete(sid):
+    signups = [s for s in load_signups() if s.get("id") != sid]
+    save_signups(signups)
+    return {"ok": True}
+
+
+SIGNUP_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Register — FBR Digital Invoicing</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a2332;padding:20px}
+.wrap{max-width:640px;margin:20px auto}
+.card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden}
+.hd{background:linear-gradient(135deg,#1C2E4A,#2C4A73);color:#fff;padding:28px 32px}
+.hd h1{font-size:22px;margin-bottom:6px}
+.hd p{font-size:13px;opacity:.9}
+.body{padding:28px 32px}
+.intro{font-size:13px;color:#55606d;line-height:1.7;margin-bottom:22px;background:#EDF4FF;padding:14px 16px;border-radius:8px;border-left:3px solid #1C2E4A}
+label{display:block;font-size:13px;font-weight:600;margin-bottom:5px;margin-top:16px}
+label .req{color:#DC2626}
+input,select,textarea{width:100%;padding:10px 12px;border:1px solid #d0d7de;border-radius:7px;font-size:14px;font-family:inherit}
+.help{font-size:11.5px;color:#8794a3;margin-top:4px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.btn{margin-top:24px;width:100%;padding:13px;background:#2563EB;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
+.btn:hover{background:#1d4ed8}
+#msg{margin-top:16px;padding:14px;border-radius:8px;font-size:14px;display:none}
+#msg.ok{background:#EDFBF3;color:#1B7A4B;border:1px solid #A7E5C4;display:block}
+#msg.err{background:#FEF2F2;color:#DC2626;border:1px solid #FBCFCF;display:block}
+.foot{text-align:center;font-size:12px;color:#8794a3;margin-top:20px}
+@media(max-width:520px){.row{grid-template-columns:1fr}}
+</style></head><body>
+<div class="wrap"><div class="card">
+<div class="hd"><h1>Register Your Business</h1><p>FBR Digital Invoicing · Powered by Paragon Business Solution</p></div>
+<div class="body">
+<div class="intro">Fill in your business details below. Once you submit, we will set up your account and send you a login. Fields marked <b style="color:#DC2626">*</b> are required. Your NTN and STRN are on your FBR registration certificate.</div>
+
+<label>Company / Business name <span class="req">*</span></label>
+<input id="s_name" type="text" placeholder="As registered with FBR">
+
+<div class="row">
+  <div><label>NTN <span class="req">*</span></label><input id="s_ntn" type="text" placeholder="7 digits">
+    <div class="help">On your FBR certificate</div></div>
+  <div><label>STRN</label><input id="s_strn" type="text" placeholder="Sales tax number">
+    <div class="help">If registered for sales tax</div></div>
+</div>
+
+<label>Business address</label>
+<input id="s_address" type="text" placeholder="Full address">
+
+<div class="row">
+  <div><label>Province <span class="req">*</span></label>
+    <select id="s_province"><option value="">Choose...</option>
+      <option>SINDH</option><option>PUNJAB</option><option>KHYBER PAKHTUNKHWA</option>
+      <option>BALOCHISTAN</option><option>CAPITAL TERRITORY</option>
+      <option>AZAD JAMMU AND KASHMIR</option><option>GILGIT BALTISTAN</option></select></div>
+  <div><label>Business nature</label><input id="s_nature" type="text" placeholder="e.g. Trading, Services, Importer">
+    <div class="help">e.g. Importer, General Order Supplier</div></div>
+</div>
+
+<div class="row">
+  <div><label>Phone <span class="req">*</span></label><input id="s_phone" type="text" placeholder="021-xxxxxxx"></div>
+  <div><label>Email <span class="req">*</span></label><input id="s_email" type="email" placeholder="you@company.com">
+    <div class="help">Your login and invoices link to this</div></div>
+</div>
+
+<div class="row">
+  <div><label>Website</label><input id="s_website" type="text" placeholder="www.company.com"></div>
+  <div><label>Contact person</label><input id="s_contact" type="text" placeholder="Person we should deal with"></div>
+</div>
+
+<label>Preferred login username</label>
+<input id="s_user" type="text" placeholder="e.g. yourcompany (letters and numbers)">
+<div class="help">You will use this to sign in. We will confirm it and send your password.</div>
+
+<button class="btn" onclick="submitSignup()">Submit my details</button>
+<div id="msg"></div>
+</div></div>
+<div class="foot">Paragon Business Solution · sales@pbsolution.com.pk · 021-34536010</div>
+</div>
+<script>
+function submitSignup(){
+  var g=function(id){var e=document.getElementById(id);return e?e.value.trim():'';};
+  var name=g('s_name'), ntn=g('s_ntn'), prov=g('s_province'), phone=g('s_phone'), email=g('s_email');
+  var m=document.getElementById('msg');
+  if(!name||!ntn||!prov||!phone||!email){ m.className='err'; m.textContent='Please fill all required (*) fields.'; return; }
+  if(email.indexOf('@')<1){ m.className='err'; m.textContent='Please enter a valid email.'; return; }
+  m.className=''; m.style.display='none';
+  var data={name:name,ntn:ntn,strn:g('s_strn'),address:g('s_address'),province:prov,
+    businessNature:g('s_nature'),phone:phone,email:email,website:g('s_website'),
+    contactPerson:g('s_contact'),preferredUser:g('s_user')};
+  fetch('/signup/submit',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(data)})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ m.className='ok'; m.textContent=d.msg; 
+        document.querySelectorAll('input,select,textarea').forEach(function(x){x.value='';x.disabled=true;});
+        document.querySelector('.btn').style.display='none';
+      } else { m.className='err'; m.textContent=d.msg||'Something went wrong.'; }
+    })
+    .catch(function(){ m.className='err'; m.textContent='Could not submit. Please try again.'; });
+}
+</script></body></html>"""
+
+
 PLANS_PATH = os.path.join(HERE, "plans.json")
 
 def load_plans():
@@ -839,6 +992,8 @@ def admin_handle(path, req):
     if path == "/admin/toggle":  return admin_toggle_active(req)
     if path == "/admin/toggleuser": return admin_toggle_user(req)
     if path == "/admin/features": return admin_save_features(req)
+    if path == "/admin/signups":  return {"ok": True, "signups": admin_signups_view()}
+    if path == "/admin/signupdel": return admin_signup_delete(req.get("id"))
     if path == "/admin/plans":    return {"ok": True, "plans": admin_plans_view()}
     if path == "/admin/saveplan": return admin_save_plan(req)
     if path == "/admin/delplan":  return admin_delete_plan(req.get("name"))
@@ -1386,7 +1541,7 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
     margin-bottom:10px">
     <div><h2>Companies</h2>
      <div class="small" id="count"></div></div>
-    <button class="ghost" onclick="openPlans()">Manage Plans</button> <button onclick="openForm()">+ Add a company</button>
+    <button class="ghost" onclick="openSignups()">Registrations</button> <button class="ghost" onclick="downloadTemplate()">Excel Template</button> <button class="ghost" onclick="importExcel()">Import Excel</button> <button class="ghost" onclick="openPlans()">Manage Plans</button> <button onclick="openForm()">+ Add a company</button><input type="file" id="excelImportFile" accept=".csv,.xlsx" style="display:none" onchange="doImportExcel(this)">
    </div>
    <div id="list"></div>
   </div>
@@ -1676,6 +1831,89 @@ function saveFeatures(id){
   });
 }
 
+// Registrations (online form submissions)
+function openSignups(){
+  post('/admin/signups').then(function(d){
+    var s = (d && d.signups) || [];
+    var rows = s.length ? s.map(function(x){
+      return '<div style="border:1px solid #e2e8f0;border-radius:8px;padding:14px;margin-bottom:10px">'+
+        '<div style="display:flex;justify-content:space-between"><b>'+esc(x.name)+'</b>'+
+        '<span style="font-size:11px;color:#888">'+esc(x.submitted||'')+'</span></div>'+
+        '<div style="font-size:12.5px;color:#55606d;margin-top:6px;line-height:1.7">'+
+          'NTN: '+esc(x.ntn||'-')+' · STRN: '+esc(x.strn||'-')+'<br>'+
+          esc(x.address||'')+(x.province?', '+esc(x.province):'')+'<br>'+
+          'Phone: '+esc(x.phone||'-')+' · Email: '+esc(x.email||'-')+'<br>'+
+          (x.businessNature?'Nature: '+esc(x.businessNature)+'<br>':'')+
+          (x.contactPerson?'Contact: '+esc(x.contactPerson)+'<br>':'')+
+          (x.preferredUser?'Wants username: <b>'+esc(x.preferredUser)+'</b>':'')+
+        '</div>'+
+        '<div style="margin-top:10px;text-align:right">'+
+          '<button class="primary sm" onclick=\'createFromSignup('+JSON.stringify(JSON.stringify(x))+')\'>Create company</button> '+
+          '<button class="danger sm" onclick="delSignup(\''+esc(x.id)+'\')">Delete</button></div>'+
+      '</div>';
+    }).join('') : '<div style="color:#888;padding:16px;text-align:center">No registrations yet. Share your form link: <b>'+location.origin+'/signup</b></div>';
+    showModal('<h3 style="margin-bottom:6px">Registrations</h3>'+
+      '<p style="font-size:12.5px;color:#666;margin-bottom:14px">Businesses who filled your online form. Share the link: <b style="color:#2563EB">'+location.origin+'/signup</b></p>'+
+      rows+'<div style="margin-top:14px;text-align:right"><button class="ghost" onclick="closeModalX()">Close</button></div>');
+  });
+}
+function createFromSignup(json){
+  var x = JSON.parse(json);
+  closeModalX();
+  openForm();
+  setTimeout(function(){
+    var set=function(id,v){var e=document.getElementById(id);if(e)e.value=v||'';};
+    set('fName',x.name); set('fNtn',x.ntn); set('fStrn',x.strn); set('fAddr',x.address);
+    set('fPhone',x.phone); set('fEmail',x.email); set('fWeb',x.website);
+    set('fLoginUser',x.preferredUser);
+    if(document.getElementById('fProv')&&x.province){ document.getElementById('fProv').value=x.province; }
+    // id suggest
+    if(document.getElementById('fId')&&x.preferredUser){ document.getElementById('fId').value=x.preferredUser.toLowerCase().replace(/[^a-z0-9]/g,''); }
+    say('Details loaded from registration. Set a login password and features, then Save.','good');
+  }, 300);
+}
+function delSignup(id){
+  if(!confirm('Delete this registration?')) return;
+  post('/admin/signupdel',{id:id}).then(function(){ openSignups(); });
+}
+
+// Excel template download
+function downloadTemplate(){
+  var headers = ['Company Name','NTN','STRN','Address','Province','Business Nature','Phone','Email','Website','Contact Person','Preferred Username'];
+  var example = ['ABC Traders','1234567','3277876180532','Karachi','SINDH','Importer','021-1234567','info@abc.com','www.abc.com','Ali Khan','abctraders'];
+  var csv = headers.join(',')+'\n'+example.join(',')+'\n';
+  var blob = new Blob([csv],{type:'text/csv'});
+  var a = document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='company-template.csv'; a.click();
+  say('Template downloaded. Fill it and use Import Excel.','good');
+}
+// Excel import
+function importExcel(){ document.getElementById('excelImportFile').click(); }
+function doImportExcel(input){
+  var file=input.files&&input.files[0]; if(!file) return;
+  var r=new FileReader();
+  r.onload=function(e){
+    var text=e.target.result;
+    var lines=text.split(/\r?\n/).filter(function(l){return l.trim();});
+    if(lines.length<2){ say('File is empty or has no data row.','bad'); return; }
+    var vals=lines[1].split(',');
+    // headers order: name,ntn,strn,address,province,nature,phone,email,website,contact,user
+    closeModalX();
+    openForm();
+    setTimeout(function(){
+      var set=function(id,v){var el=document.getElementById(id);if(el)el.value=(v||'').trim();};
+      set('fName',vals[0]); set('fNtn',vals[1]); set('fStrn',vals[2]); set('fAddr',vals[3]);
+      if(document.getElementById('fProv')&&vals[4]) document.getElementById('fProv').value=vals[4].trim();
+      set('fPhone',vals[6]); set('fEmail',vals[7]); set('fWeb',vals[8]);
+      set('fLoginUser',vals[10]);
+      if(document.getElementById('fId')&&vals[10]) document.getElementById('fId').value=vals[10].trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+      say('Details loaded from Excel. Set a login password and features, then Save.','good');
+    },300);
+  };
+  r.readAsText(file);
+  input.value='';
+}
+
 // Plans management
 var ALL_FEATURES_LIST = [
   ['reports','Reports'],['returnSummary','Tax Return Summary'],['clients','Buyers'],
@@ -1950,6 +2188,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0].rstrip("/") or "/"
 
+        if path == "/signup":
+            body = SIGNUP_HTML.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if path == "/admin":
             body = ADMIN_HTML.encode("utf-8")
             self.send_response(200)
