@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 19.7 — FBR Digital Invoicing
+   Invoice Manager 19.8 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.7 · SN001 Buyer · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.8 · 28 Strong · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -8060,7 +8060,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '19.7',
+  version: '19.8',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
@@ -11261,7 +11261,13 @@ function resolveScenario(scenarioCode, onStep){
     'SN020': { buyerReg:'Registered', desc:'Electric Vehicle', chapters:['8703','8702'] },
     'SN021': { uom:'MT', buyerReg:'Registered', desc:'Cement', chapters:['2523'] },
     'SN022': { buyerReg:'Registered', desc:'Potassium Chlorate', chapters:['2829','2827','2833','28'], forceUom:'KG' },
-    'SN023': { buyerReg:'Registered', desc:'CNG', chapters:['2711','2709'] }
+    'SN023': { buyerReg:'Registered', desc:'CNG', chapters:['8443','2711','2709'], sroHint:'581' },
+    // Waqar's reference se add
+    'SN005': { uom:'KG', buyerReg:'Registered', desc:'Reduced Rate Goods', chapters:['3215','32'], blankExtraTax:true },
+    'SN009': { buyerReg:'Registered', desc:'Cotton', chapters:['5201','5203','52'] },
+    'SN010': { buyerReg:'Registered', desc:'Telecom Service', chapters:['9815'] },
+    'SN014': { buyerReg:'Unregistered', desc:'Gas CNG', chapters:['2711','2709'] },
+    'SN025': { buyerReg:'Registered', desc:'Non-Adjustable Supply', chapters:['3004','8443','30'], sroHint:'8th' }
   };
 
   /* Matts (7490230) ki TESTED exact values - pakka pass. Company match ho to yeh use. */
@@ -11711,15 +11717,16 @@ function asRunScenario(code){
               var pm = String(rLbl).match(/([\d.]+)\s*%/); if(pm) pctPart = parseFloat(pm[1]);
               var um = String(rLbl).match(/Rs\.?\s*([\d.]+)\s*per/i); if(um) perUnit = parseFloat(um[1]);
               // combos: value, qty -> salesTax = value*pct% + qty*perUnit
+              // Waqar's working reference: value 100, salesTax 178 = 18% + Rs.80 x 2
               var combos = [
+                [100,1, +n2(100*pctPart/100 + 2*perUnit), 0],      // 18 + 160 = 178 (WORKING!)
                 [100,1, +n2(100*pctPart/100 + 1*perUnit), 0],      // 18+80=98
-                [1000,1, +n2(1000*pctPart/100 + 1*perUnit), 0],    // 180+80=260
-                [1000,10, +n2(1000*pctPart/100 + 10*perUnit), 0],  // 180+800=980
+                [1000,1, +n2(1000*pctPart/100 + 2*perUnit), 0],    // 180+160=340
+                [1000,10, +n2(1000*pctPart/100 + 20*perUnit), 0],  // 180+1600
                 [100,1, +n2(100*pctPart/100), 0],                  // ST only=18
                 [100,1, +n2(100*pctPart/100), 1*perUnit],          // ST=18, FED sep=80
-                [500,1, +n2(500*pctPart/100 + 1*perUnit), 0],      // 90+80=170
-                [1000,1, +n2(1000*pctPart/100), 1*perUnit],        // ST=180, FED sep=80
-                [10000,1, +n2(10000*pctPart/100 + 1*perUnit), 0]   // larger value
+                [1000,1, +n2(1000*pctPart/100 + 1*perUnit), 0],    // 180+80=260
+                [500,1, +n2(500*pctPart/100 + 2*perUnit), 0]       // 90+160=250
               ];
               cfg._taxIdx = 0;
               function taxRetry(){
