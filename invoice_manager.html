@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 18.9 — FBR Digital Invoicing
+   Invoice Manager 19.1 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 18.9 · Scenario Fix · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.1 · Retry+English · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -5124,15 +5124,27 @@ function showPayload(){
 }
 
 /* ---------- talk to the bridge ---------- */
-function callBridge(body){
+function callBridge(body, _retries){
   var url = DB.fbr.url || window._autoBridge || '';
   if(!url) return Promise.reject(new Error('No bridge URL set'));
-  return fetch(url, {
-    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign(
-      { key: DB.fbr.key, env: DB.fbr.env, client: DB.fbr.client || '',
-        session: window._cloudSession || '' }, body))
-  }).then(function(r){ return r.json(); });
+  var maxRetries = (_retries == null) ? 3 : _retries;
+  var payload = JSON.stringify(Object.assign(
+    { key: DB.fbr.key, env: DB.fbr.env, client: DB.fbr.client || '',
+      session: window._cloudSession || '' }, body));
+  function attempt(triesLeft){
+    return fetch(url, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: payload
+    }).then(function(r){ return r.json(); })
+      .catch(function(err){
+        // Network fail (Failed to fetch) - dobara try (2 sec ruk kar)
+        if(triesLeft > 0){
+          return new Promise(function(resolve){ setTimeout(resolve, 2000); })
+            .then(function(){ return attempt(triesLeft - 1); });
+        }
+        throw err;
+      });
+  }
+  return attempt(maxRetries);
 }
 
 /* HS Finder: pehli line ki HS ko har sale type ke saath FBR se validate karo,
@@ -6798,7 +6810,7 @@ function downloadAllPdf(){
 /* Excel (.xlsx/.xls) ko seedha parho \u2014 SheetJS se, jo zaroorat par CDN se aata hai. */
 function xlsxRows(buf){
   if(typeof XLSX === 'undefined' || !XLSX.read){
-    toast('Excel reader load ho raha hai \u2014 file dobara chunein','bad');
+    toast('The Excel reader is still loading \u2014 please select the file again','bad');
     ensureSheetJS(); return null;
   }
   try {
@@ -6814,8 +6826,8 @@ function ensureSheetJS(){
   window._sheetjsLoading = true;
   var s = document.createElement('script');
   s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
-  s.onload = function(){ toast('Excel reader tayyar \u2014 ab file chunein','good'); };
-  s.onerror = function(){ toast('Excel reader load nahi hua \u2014 file ko CSV mein save karein','bad'); };
+  s.onload = function(){ toast('The Excel reader is ready \u2014 now select your file','good'); };
+  s.onerror = function(){ toast('The Excel reader could not load \u2014 please save the file as CSV instead','bad'); };
   document.head.appendChild(s);
 }
 
@@ -8048,7 +8060,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '18.9',
+  version: '19.1',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
@@ -11468,7 +11480,7 @@ function autoScenarioBox(){
     return SCENARIOS.findIndex(function(x){return x[0]===s[0];})===i; // unique
   });
   modal('Auto Scenario Runner (FBR Sandbox)',
-    '<div class="help" style="margin-bottom:12px">Scenario chunein — Invoice Manager FBR se sab (rate, HS, UOM, SRO) khud laa kar invoice banayega aur submit karega.</div>'+
+    '<div class="help" style="margin-bottom:12px">Choose a scenario and Invoice Manager will fetch everything from FBR — rate, HS code, unit of measure and SRO — then build and submit the invoice automatically.</div>'+
     '<div class="field"><label>Scenario</label><select id="asScenario">'+
       opts.map(function(s){ return '<option value="'+s[0]+'">'+s[0]+' — '+esc(s[1])+'</option>'; }).join('')+
     '</select></div>'+
