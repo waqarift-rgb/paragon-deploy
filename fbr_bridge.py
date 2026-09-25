@@ -710,9 +710,9 @@ input,select,textarea{width:100%;padding:10px 12px;border:1px solid #d0d7de;bord
 @media(max-width:520px){.row{grid-template-columns:1fr}}
 </style></head><body>
 <div class="wrap"><div class="card">
-<div class="hd"><h1>Register Your Business</h1><p>FBR Digital Invoicing · Powered by Paragon Business Solution</p></div>
+<div class="hd"><h1>Welcome to FBR Digital Invoicing</h1><p>By Paragon Business Solution &mdash; smart, compliant invoicing for Pakistan</p></div>
 <div class="body">
-<div class="intro">Fill in your business details below. Once you submit, we will set up your account and send you a login. Fields marked <b style="color:#DC2626">*</b> are required. Your NTN and STRN are on your FBR registration certificate.</div>
+<div class="intro"><b>Thank you for choosing us!</b><br>You are moments away from effortless, FBR-compliant invoicing. Fill in your business details below and we will set up your account and send you a login &mdash; usually within one working day.<br><br>Fields marked <b style="color:#DC2626">*</b> are required. Your NTN and STRN are on your FBR registration certificate. Need help? Just call us &mdash; we are here for you.</div>
 
 <label>Company / Business name <span class="req">*</span></label>
 <input id="s_name" type="text" placeholder="As registered with FBR">
@@ -2137,9 +2137,87 @@ function saveClient(){
       loadList();
       return;
     }
-    hide('form'); say(d.msg, 'good'); loadList();
+    // Welcome sheet - agar login username+password diya
+    var lu = $('fLoginUser') ? $('fLoginUser').value.trim() : '';
+    var lp = $('fLoginPass') ? $('fLoginPass').value.trim() : '';
+    if(lu && lp){
+      showWelcomeSheet($('fName').value, lu, lp);
+    }
+    say(d.msg, 'good'); loadList();
   });
 }
+
+/* Welcome sheet - client ko share karne ke liye (login detail + steps) */
+function showWelcomeSheet(company, user, pass){
+  var appUrl = location.origin + '/';
+  var sheet =
+    'Welcome to FBR Digital Invoicing\n'+
+    'Powered by Paragon Business Solution\n'+
+    '=====================================\n\n'+
+    'Company: ' + company + '\n\n'+
+    'Login here:\n' + appUrl + '\n\n'+
+    'Username: ' + user + '\n'+
+    'Password: ' + pass + '\n\n'+
+    'First time sign-in:\n'+
+    '1. Open the link above in any browser\n'+
+    '2. Enter your username and password\n'+
+    '3. You will be asked to set your own new password\n'+
+    '4. Check your company details and start invoicing\n\n'+
+    'Need help?\n'+
+    'Paragon Business Solution\n'+
+    'sales@pbsolution.com.pk  |  021-34536010\n';
+
+  var html =
+    '<div id="welcomeSheetPrint" style="font-family:Arial;max-width:520px;margin:0 auto">'+
+      '<div style="background:linear-gradient(135deg,#1C2E4A,#2C4A73);color:#fff;padding:24px;border-radius:10px 10px 0 0;text-align:center">'+
+        '<div style="font-size:20px;font-weight:800">Welcome to FBR Digital Invoicing</div>'+
+        '<div style="font-size:12px;opacity:.9;margin-top:4px">Powered by Paragon Business Solution</div></div>'+
+      '<div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;padding:24px">'+
+        '<div style="font-size:15px;font-weight:700;color:#1C2E4A;margin-bottom:14px">' + esc(company) + '</div>'+
+        '<div style="background:#EDF4FF;border-radius:8px;padding:16px;margin-bottom:16px">'+
+          '<div style="font-size:11px;color:#5A7290;text-transform:uppercase">Login here</div>'+
+          '<div style="font-size:14px;color:#2563EB;font-weight:600;word-break:break-all">' + esc(appUrl) + '</div>'+
+          '<div style="margin-top:12px;display:flex;gap:20px">'+
+            '<div><div style="font-size:11px;color:#5A7290;text-transform:uppercase">Username</div><div style="font-size:15px;font-weight:700">' + esc(user) + '</div></div>'+
+            '<div><div style="font-size:11px;color:#5A7290;text-transform:uppercase">Password</div><div style="font-size:15px;font-weight:700;font-family:monospace">' + esc(pass) + '</div></div>'+
+          '</div></div>'+
+        '<div style="font-size:13px;color:#3a4656;line-height:1.8">'+
+          '<b>First time sign-in:</b><br>'+
+          '1. Open the link above in any browser<br>'+
+          '2. Enter your username and password<br>'+
+          '3. Set your own new password when asked<br>'+
+          '4. Check your details and start invoicing</div>'+
+        '<div style="margin-top:16px;padding-top:12px;border-top:1px solid #eef1f5;font-size:12px;color:#8794a3">'+
+          'Need help? sales@pbsolution.com.pk &middot; 021-34536010</div>'+
+      '</div></div>';
+
+  var box = document.getElementById('welcomeBox');
+  if(!box){ box=document.createElement('div'); box.id='welcomeBox';
+    box.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1100;padding:20px;overflow:auto';
+    document.body.appendChild(box); }
+  box.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px;max-width:600px;width:100%;max-height:90vh;overflow:auto">'+
+    '<div style="font-size:13px;color:#059669;background:#EDFBF3;padding:10px 14px;border-radius:8px;margin-bottom:16px">&#10003; Company created. Share these login details with your client. The password is shown only now.</div>'+
+    html +
+    '<div style="margin-top:20px;text-align:center;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'+
+      '<button class="primary" onclick=\'copyWelcome('+JSON.stringify(JSON.stringify(sheet))+')\'>Copy for WhatsApp/Email</button>'+
+      '<button class="ghost" onclick="printWelcome()">Print</button>'+
+      '<button class="ghost" onclick="closeWelcome()">Close</button></div></div>';
+  box.style.display='flex';
+}
+function copyWelcome(json){
+  var text = JSON.parse(json);
+  if(navigator.clipboard){ navigator.clipboard.writeText(text).then(function(){ say('Login details copied \u2014 paste into WhatsApp or email','good'); }); }
+  else { var ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); say('Copied','good'); }
+}
+function printWelcome(){
+  var content = document.getElementById('welcomeSheetPrint');
+  if(!content) return;
+  var w = window.open('', '_blank');
+  if(!w){ say('Please allow pop-ups to print','bad'); return; }
+  w.document.write('<html><head><title>Login details</title></head><body style="margin:30px">'+content.outerHTML+'</body></html>');
+  w.document.close(); setTimeout(function(){ w.print(); }, 300);
+}
+function closeWelcome(){ var b=document.getElementById('welcomeBox'); if(b) b.style.display='none'; hide('form'); }
 
 function delClient(id, name){
   if(!confirm('Remove ' + name + ' from this bridge?\n\n' +
