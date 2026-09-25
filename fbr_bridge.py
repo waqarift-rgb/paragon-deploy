@@ -668,6 +668,7 @@ def public_signup(req):
         "preferredUser": str(d.get("preferredUser") or "").strip(),
         "logo": str(d.get("logo") or ""),
         "token": str(d.get("token") or "").strip(),
+        "prodToken": str(d.get("prodToken") or "").strip(),
         "submitted": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "status": "pending"
     }
@@ -687,115 +688,147 @@ def admin_signup_delete(sid):
 
 SIGNUP_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Register — FBR Digital Invoicing</title>
+<title>Register Your Business — Paragon Business Solution</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f0f2f5;color:#1a2332;padding:20px}
-.wrap{max-width:640px;margin:20px auto}
-.card{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);overflow:hidden}
-.hd{background:linear-gradient(135deg,#1C2E4A,#2C4A73);color:#fff;padding:28px 32px}
-.hd h1{font-size:22px;margin-bottom:6px}
-.hd p{font-size:13px;opacity:.9}
-.body{padding:28px 32px}
-.intro{font-size:13px;color:#55606d;line-height:1.7;margin-bottom:22px;background:#EDF4FF;padding:14px 16px;border-radius:8px;border-left:3px solid #1C2E4A}
-label{display:block;font-size:13px;font-weight:600;margin-bottom:5px;margin-top:16px}
+body{font-family:'Segoe UI',-apple-system,Arial,sans-serif;background:#eef1f6;color:#1a2332;line-height:1.5;padding:24px 16px}
+.wrap{max-width:680px;margin:0 auto}
+.card{background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(28,46,74,.12);overflow:hidden}
+.hd{background:linear-gradient(135deg,#1C2E4A 0%,#2C4A73 100%);color:#fff;padding:38px 40px;position:relative;overflow:hidden}
+.hd::after{content:"";position:absolute;top:-40px;right:-40px;width:180px;height:180px;background:rgba(255,255,255,.06);border-radius:50%}
+.hd .badge{display:inline-block;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.25);border-radius:20px;padding:5px 14px;font-size:11px;letter-spacing:1px;margin-bottom:14px}
+.hd h1{font-size:26px;font-weight:800;margin-bottom:8px;position:relative}
+.hd p{font-size:14px;opacity:.92;position:relative}
+.body{padding:34px 40px}
+.intro{background:linear-gradient(100deg,#EDF4FF,#F5F9FF);border-radius:12px;padding:18px 22px;font-size:13.5px;color:#334155;line-height:1.75;margin-bottom:28px;border:1px solid #DCE7F5}
+.intro b{color:#1C2E4A}
+.sec-title{font-size:12px;font-weight:700;color:#1C2E4A;letter-spacing:.05em;text-transform:uppercase;margin:26px 0 14px;padding-bottom:8px;border-bottom:2px solid #EFF4FE}
+.sec-title:first-child{margin-top:0}
+label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:#334155}
 label .req{color:#DC2626}
-input,select,textarea{width:100%;padding:10px 12px;border:1px solid #d0d7de;border-radius:7px;font-size:14px;font-family:inherit}
-.help{font-size:11.5px;color:#8794a3;margin-top:4px}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.btn{margin-top:24px;width:100%;padding:13px;background:#2563EB;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
-.btn:hover{background:#1d4ed8}
-#msg{margin-top:16px;padding:14px;border-radius:8px;font-size:14px;display:none}
-#msg.ok{background:#EDFBF3;color:#1B7A4B;border:1px solid #A7E5C4;display:block}
+label .opt{color:#94a3b8;font-weight:400;font-size:12px}
+input,select,textarea{width:100%;padding:11px 14px;border:1.5px solid #d8dfe8;border-radius:9px;font-size:14px;font-family:inherit;transition:border .15s;background:#fdfdfe}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#2563EB;background:#fff}
+.help{font-size:11.5px;color:#94a3b8;margin-top:5px;line-height:1.5}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.fld{margin-bottom:16px}
+.btn{margin-top:30px;width:100%;padding:15px;background:linear-gradient(135deg,#2563EB,#1d4ed8);color:#fff;border:none;border-radius:11px;font-size:15.5px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,.3);transition:transform .1s}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+#msg{margin-top:18px;padding:16px 18px;border-radius:11px;font-size:14px;display:none;line-height:1.6}
+#msg.ok{background:#EDFBF3;color:#15803d;border:1px solid #A7E5C4;display:block}
 #msg.err{background:#FEF2F2;color:#DC2626;border:1px solid #FBCFCF;display:block}
-.foot{text-align:center;font-size:12px;color:#8794a3;margin-top:20px}
-@media(max-width:520px){.row{grid-template-columns:1fr}}
+.tokwrap{background:#FEFCF5;border:1px solid #F0E4C4;border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.foot{text-align:center;font-size:12.5px;color:#8794a3;margin-top:24px;line-height:1.8}
+.foot b{color:#64748b}
+@media(max-width:560px){.row{grid-template-columns:1fr;gap:0}.hd,.body{padding-left:24px;padding-right:24px}}
 </style></head><body>
 <div class="wrap"><div class="card">
-<div class="hd"><h1>Welcome to FBR Digital Invoicing</h1><p>By Paragon Business Solution &mdash; smart, compliant invoicing for Pakistan</p></div>
+<div class="hd">
+  <div class="badge">FBR DIGITAL INVOICING</div>
+  <h1>Register Your Business</h1>
+  <p>Get set up for effortless, FBR-compliant invoicing &mdash; by Paragon Business Solution</p>
+</div>
 <div class="body">
-<div class="intro"><b>Thank you for choosing us!</b><br>You are moments away from effortless, FBR-compliant invoicing. Fill in your business details below and we will set up your account and send you a login &mdash; usually within one working day.<br><br>Fields marked <b style="color:#DC2626">*</b> are required. Your NTN and STRN are on your FBR registration certificate. Need help? Just call us &mdash; we are here for you.</div>
-
-<label>Company / Business name <span class="req">*</span></label>
-<input id="s_name" type="text" placeholder="As registered with FBR">
-
-<div class="row">
-  <div><label>NTN <span class="req">*</span></label><input id="s_ntn" type="text" placeholder="7 digits">
-    <div class="help">On your FBR certificate</div></div>
-  <div><label>STRN</label><input id="s_strn" type="text" placeholder="Sales tax number">
-    <div class="help">If registered for sales tax</div></div>
+<div class="intro">
+  <b>Welcome, and thank you for choosing us.</b><br>
+  You are just one short form away from real-time FBR invoicing, professional quotations, and complete peace of mind on compliance. Simply share your business details below and our team will set up your account and send you a secure login &mdash; typically within one working day. Fields marked <b style="color:#DC2626">*</b> are required; everything else is optional. If anything is unclear, we are only a phone call away.
 </div>
 
-<label>Business address</label>
-<input id="s_address" type="text" placeholder="Full address">
-
+<div class="sec-title">Business Details</div>
+<div class="fld"><label>Company / Business name <span class="req">*</span></label>
+  <input id="s_name" type="text" placeholder="Exactly as registered with FBR">
+  <div class="help">This name appears on your invoices and FBR submissions.</div></div>
+<div class="row">
+  <div><label>NTN <span class="req">*</span></label><input id="s_ntn" type="text" placeholder="e.g. 1234567">
+    <div class="help">Found on your FBR registration certificate.</div></div>
+  <div><label>STRN <span class="opt">(optional)</span></label><input id="s_strn" type="text" placeholder="Sales tax registration no.">
+    <div class="help">If you are registered for sales tax.</div></div>
+</div>
+<div class="fld"><label>Business address <span class="opt">(optional)</span></label>
+  <input id="s_address" type="text" placeholder="Complete business address"></div>
 <div class="row">
   <div><label>Province <span class="req">*</span></label>
-    <select id="s_province"><option value="">Choose...</option>
+    <select id="s_province"><option value="">Select province...</option>
       <option>SINDH</option><option>PUNJAB</option><option>KHYBER PAKHTUNKHWA</option>
       <option>BALOCHISTAN</option><option>CAPITAL TERRITORY</option>
       <option>AZAD JAMMU AND KASHMIR</option><option>GILGIT BALTISTAN</option></select></div>
-  <div><label>Business nature</label><input id="s_nature" type="text" placeholder="e.g. Trading, Services, Importer">
-    <div class="help">e.g. Importer, General Order Supplier</div></div>
+  <div><label>Nature of business <span class="opt">(optional)</span></label><input id="s_nature" type="text" placeholder="e.g. Trading, Services">
+    <div class="help">e.g. Importer, General Order Supplier.</div></div>
 </div>
 
+<div class="sec-title">Contact &amp; Access</div>
 <div class="row">
-  <div><label>Phone <span class="req">*</span></label><input id="s_phone" type="text" placeholder="021-xxxxxxx"></div>
+  <div><label>Phone <span class="req">*</span></label><input id="s_phone" type="text" placeholder="021-XXXXXXX"></div>
   <div><label>Email <span class="req">*</span></label><input id="s_email" type="email" placeholder="you@company.com">
-    <div class="help">Your login and invoices link to this</div></div>
+    <div class="help">Your login and updates are sent here.</div></div>
 </div>
-
 <div class="row">
-  <div><label>Website</label><input id="s_website" type="text" placeholder="www.company.com"></div>
-  <div><label>Contact person</label><input id="s_contact" type="text" placeholder="Person we should deal with"></div>
+  <div><label>Website <span class="opt">(optional)</span></label><input id="s_website" type="text" placeholder="www.company.com"></div>
+  <div><label>Contact person <span class="opt">(optional)</span></label><input id="s_contact" type="text" placeholder="Who we should speak to"></div>
+</div>
+<div class="fld"><label>Preferred login username <span class="opt">(optional)</span></label>
+  <input id="s_user" type="text" placeholder="e.g. yourcompany">
+  <div class="help">Choose what you would like to sign in with. We will confirm it and send your password.</div></div>
+
+<div class="sec-title">Branding &amp; FBR Tokens</div>
+<div class="fld"><label>Company logo <span class="opt">(optional)</span></label>
+  <input id="s_logo" type="file" accept="image/*" onchange="pickLogo(this)">
+  <div id="s_logoPreview" style="margin-top:8px"></div>
+  <div class="help">Appears on your invoices &mdash; you can add or change it any time later.</div></div>
+
+<div class="tokwrap">
+  <div style="font-size:13px;color:#8A6420;line-height:1.7;margin-bottom:14px">
+    <b>&#128273; FBR Tokens &mdash; only if you already have them.</b><br>
+    Not sure where to find your tokens, or don&rsquo;t have them yet? Please leave these blank.
+    Our team will guide you step by step, or securely obtain them for you from FBR using your IRIS login &mdash;
+    whatever is easiest for you.
+  </div>
+  <div class="fld" style="margin-bottom:12px"><label>FBR Sandbox Token <span class="opt">(optional)</span></label>
+    <textarea id="s_token" rows="2" placeholder="Paste your sandbox token here, if you have it"></textarea>
+    <div class="help">Used for testing before you go live.</div></div>
+  <div class="fld" style="margin-bottom:0"><label>FBR Production Token <span class="opt">(optional)</span></label>
+    <textarea id="s_prodtoken" rows="2" placeholder="Paste your production token here, if you have it"></textarea>
+    <div class="help">Used for live invoicing once testing is complete.</div></div>
 </div>
 
-<label>Preferred login username</label>
-<input id="s_user" type="text" placeholder="e.g. yourcompany (letters and numbers)">
-<div class="help">You will use this to sign in. We will confirm it and send your password.</div>
-
-<label>Company logo <span style="color:#8794a3;font-weight:400">(optional)</span></label>
-<input id="s_logo" type="file" accept="image/*" onchange="pickLogo(this)">
-<div id="s_logoPreview" style="margin-top:8px"></div>
-<div class="help">Appears on your invoices. You can add or change it later.</div>
-
-<label>FBR Sandbox Token <span style="color:#8794a3;font-weight:400">(optional)</span></label>
-<textarea id="s_token" rows="2" placeholder="Paste your FBR token here if you have it"></textarea>
-<div class="help" style="line-height:1.7">Don&rsquo;t have your FBR token or not sure where to find it? No problem &mdash; leave this blank. We will guide you, or fetch it for you from FBR using your IRIS login. Just let us know when we set up your account.</div>
-
-<button class="btn" onclick="submitSignup()">Submit my details</button>
+<button class="btn" onclick="submitSignup()">Submit My Details</button>
 <div id="msg"></div>
 </div></div>
-<div class="foot">Paragon Business Solution · sales@pbsolution.com.pk · 021-34536010</div>
+<div class="foot">
+  <b>Paragon Business Solution</b><br>
+  sales@pbsolution.com.pk &nbsp;&middot;&nbsp; 021-34536010 &nbsp;&middot;&nbsp; www.pbsolution.com.pk
+</div>
 </div>
 <script>
 function pickLogo(input){
   var file=input.files&&input.files[0]; if(!file) return;
   var r=new FileReader();
   r.onload=function(e){ window._signupLogo=e.target.result;
-    document.getElementById('s_logoPreview').innerHTML='<img src="'+e.target.result+'" style="max-height:50px;border:1px solid #d0d7de;border-radius:4px;padding:2px">'; };
+    document.getElementById('s_logoPreview').innerHTML='<img src="'+e.target.result+'" style="max-height:52px;border:1px solid #d8dfe8;border-radius:6px;padding:3px;background:#fff">'; };
   r.readAsDataURL(file);
 }
 function submitSignup(){
   var g=function(id){var e=document.getElementById(id);return e?e.value.trim():'';};
   var name=g('s_name'), ntn=g('s_ntn'), prov=g('s_province'), phone=g('s_phone'), email=g('s_email');
   var m=document.getElementById('msg');
-  if(!name||!ntn||!prov||!phone||!email){ m.className='err'; m.textContent='Please fill all required (*) fields.'; return; }
-  if(email.indexOf('@')<1){ m.className='err'; m.textContent='Please enter a valid email.'; return; }
+  if(!name||!ntn||!prov||!phone||!email){ m.className='err'; m.textContent='Please complete all required fields marked with a red asterisk (*).'; m.scrollIntoView({behavior:'smooth',block:'center'}); return; }
+  if(email.indexOf('@')<1){ m.className='err'; m.textContent='Please enter a valid email address.'; return; }
   m.className=''; m.style.display='none';
   var data={name:name,ntn:ntn,strn:g('s_strn'),address:g('s_address'),province:prov,
     businessNature:g('s_nature'),phone:phone,email:email,website:g('s_website'),
     contactPerson:g('s_contact'),preferredUser:g('s_user'),
-    logo:window._signupLogo||'',token:g('s_token')};
+    logo:window._signupLogo||'',token:g('s_token'),prodToken:g('s_prodtoken')};
+  var btn=document.querySelector('.btn'); btn.textContent='Submitting...'; btn.disabled=true;
   fetch('/signup/submit',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(data)})
     .then(function(r){return r.json();})
     .then(function(d){
-      if(d.ok){ m.className='ok'; m.textContent=d.msg; 
-        document.querySelectorAll('input,select,textarea').forEach(function(x){x.value='';x.disabled=true;});
-        document.querySelector('.btn').style.display='none';
-      } else { m.className='err'; m.textContent=d.msg||'Something went wrong.'; }
+      if(d.ok){ m.className='ok'; m.innerHTML='&#10003; <b>Thank you!</b> '+d.msg;
+        document.querySelectorAll('input,select,textarea').forEach(function(x){x.disabled=true;});
+        btn.style.display='none'; m.scrollIntoView({behavior:'smooth',block:'center'});
+      } else { m.className='err'; m.textContent=d.msg||'Something went wrong. Please try again.'; btn.textContent='Submit My Details'; btn.disabled=false; }
     })
-    .catch(function(){ m.className='err'; m.textContent='Could not submit. Please try again.'; });
+    .catch(function(){ m.className='err'; m.textContent='Could not submit right now. Please check your connection and try again.'; btn.textContent='Submit My Details'; btn.disabled=false; });
 }
 </script></body></html>"""
 
@@ -1866,7 +1899,9 @@ function openSignups(){
           (x.contactPerson?'Contact: '+esc(x.contactPerson)+'<br>':'')+
           (x.preferredUser?'Wants username: <b>'+esc(x.preferredUser)+'</b><br>':'')+
           (x.logo?'&#10003; Logo uploaded  ':'')+
-          (x.token?'&#10003; FBR token provided':'<span style="color:#D97706">No FBR token \u2014 will guide/fetch</span>')+
+          (x.token?'&#10003; Sandbox token  ':'')+
+          (x.prodToken?'&#10003; Production token':'')+
+          (!x.token&&!x.prodToken?'<span style="color:#D97706">No FBR tokens \u2014 will guide/fetch</span>':'')+
         '</div>'+
         '<div style="margin-top:10px;text-align:right">'+
           '<button class="primary sm" onclick=\'createFromSignup('+JSON.stringify(JSON.stringify(x))+')\'>Create company</button> '+
@@ -1888,8 +1923,9 @@ function createFromSignup(json){
     set('fPhone',x.phone); set('fEmail',x.email); set('fWeb',x.website);
     set('fLoginUser',x.preferredUser);
     if(document.getElementById('fProv')&&x.province){ document.getElementById('fProv').value=x.province; }
-    // FBR token (agar client ne diya)
+    // FBR tokens (agar client ne diye)
     if(document.getElementById('fSandbox')&&x.token){ document.getElementById('fSandbox').value=x.token; }
+    if(document.getElementById('fProd')&&x.prodToken){ document.getElementById('fProd').value=x.prodToken; }
     // id suggest
     if(document.getElementById('fId')&&x.preferredUser){ document.getElementById('fId').value=x.preferredUser.toLowerCase().replace(/[^a-z0-9]/g,''); }
     var extra = x.token ? ' FBR token was provided.' : ' No FBR token yet \u2014 fetch it from FBR or guide the client.';

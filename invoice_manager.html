@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 18.4 — FBR Digital Invoicing
+   Invoice Manager 18.6 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 18.4 · Signup+Logo · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 18.6 · Ref Dropdown · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -532,7 +532,7 @@ tbody tr:hover{background:var(--surface-2)}
       <div class="nav-group">Records</div>
       <button class="nav-item" data-page="clients"><span class="nav-ico">◍</span><span>Buyers</span><span class="nav-count" id="cntCli"></span></button>
       <button class="nav-item" data-page="items"><span class="nav-ico">◈</span><span>Products</span><span class="nav-count" id="cntItm"></span></button>
-      <button class="nav-item" data-page="verify"><span class="nav-ico">✓</span><span>Verification</span></button>
+      <button class="nav-item" data-page="verify"><span class="nav-ico">✓</span><span>Online FBR Verification</span></button>
       <div class="nav-group">Setup</div>
       <button class="nav-item" data-page="company"><span class="nav-ico">⌂</span><span>Company</span></button>
       <button class="nav-item" data-page="fbr"><span class="nav-ico">⇄</span><span>FBR link</span></button>
@@ -635,7 +635,11 @@ tbody tr:hover{background:var(--surface-2)}
                   <option>Credit Note</option>
                 </select></div>
               <div class="field"><label>Original Invoice Reference</label>
-                <input id="fRef" type="text" placeholder="For debit / credit note"></div>
+                <select id="fRefSel" onchange="refSelChange()" style="display:none">
+                  <option value="">— select original invoice —</option>
+                </select>
+                <input id="fRef" type="text" placeholder="For debit / credit note">
+                <div class="help" id="fRefHelp" style="display:none">Pick the original invoice, or choose &ldquo;Other&rdquo; to type a number the software doesn&rsquo;t have.</div></div>
               <div class="field" id="reasonField" style="display:none"><label>Reason for the note <span class="req">*</span></label>
                 <select id="fReason" onchange="reasonChange()">
                   <option value="">— choose a reason —</option>
@@ -852,7 +856,7 @@ tbody tr:hover{background:var(--surface-2)}
       <!-- VERIFICATION -->
       <div class="page" id="pg-verify">
         <div class="card" style="max-width:760px">
-          <div class="card-hd"><h2>FBR Verification</h2>
+          <div class="card-hd"><h2>Online FBR Verification</h2>
             <div class="spacer"></div><span style="font-size:12px;color:var(--ink-3)">Check any NTN or CNIC against FBR</span></div>
           <div style="font-size:12.5px;color:var(--ink-2);line-height:1.7;margin-bottom:16px">
             Enter an NTN or CNIC to check a business against FBR — their name, sales-tax registration status,
@@ -2055,6 +2059,7 @@ function resetInvoice(){
   $('fRef').value=''; $('fPo').value=''; $('fTerms').value=''; $('fNotes').value='';
   if($('fConcernName'))$('fConcernName').value=''; if($('fConcernPhone'))$('fConcernPhone').value='';
   $('fDisc').value = 0;
+  if(typeof fillBuyerList==='function') fillBuyerList();
   $('fBuyer').value=''; fillBuyer();
   $('lineRows').innerHTML=''; addLine();
   $('invFbrStrip').innerHTML='';
@@ -2067,10 +2072,58 @@ function fillBuyerList(){
     return '<option value="'+c.id+'">'+esc(c.name)+(c.ntn?' ('+esc(c.ntn)+')':'')+'</option>'; }).join('');
   sel.value = cur;
 }
+function loadRefInvoices(){
+  // Credit/Debit note - buyer ki invoices dropdown mein (NTN match)
+  var type = $('fType') ? $('fType').value : '';
+  var isNote = (type === 'Credit Note' || type === 'Debit Note');
+  var sel = $('fRefSel'), inp = $('fRef'), help = $('fRefHelp');
+  if(!sel || !inp) return;
+  if(!isNote){
+    // normal invoice - dropdown hide, text hide (ref sirf note ke liye)
+    sel.style.display = 'none'; inp.style.display = 'none'; if(help) help.style.display='none';
+    return;
+  }
+  // note - dropdown dikhao
+  sel.style.display = ''; inp.style.display = 'none'; if(help) help.style.display='';
+  // buyer ka NTN
+  var buyerId = $('fBuyer') ? $('fBuyer').value : '';
+  var buyer = DB.clients.find(function(c){ return c.id === buyerId; });
+  var ntn = buyer ? buyer.ntn : '';
+  // is NTN wali saari invoices (Sale Invoice, koi bhi)
+  var invs = DB.invoices.filter(function(v){
+    if(v.type === 'Credit Note' || v.type === 'Debit Note' || v.type === 'Quotation') return false;
+    // NTN match (buyer ka)
+    return (v.buyer && v.buyer.ntn && ntn && v.buyer.ntn === ntn) || (v.buyerId && v.buyerId === buyerId);
+  });
+  invs.sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
+  var opts = '<option value="">— select original invoice —</option>';
+  invs.forEach(function(v){
+    opts += '<option value="'+esc(v.no)+'">'+esc(v.no)+' — '+dmy(v.date)+' — '+money(v.total)+'</option>';
+  });
+  opts += '<option value="__OTHER__">Other (enter a number manually)</option>';
+  sel.innerHTML = opts;
+  // agar pehle se ref set (edit), match karo
+  if(inp.value){
+    var found = invs.some(function(v){ return v.no === inp.value; });
+    if(found){ sel.value = inp.value; }
+    else { sel.value = '__OTHER__'; inp.style.display = ''; }
+  }
+}
+function refSelChange(){
+  var sel = $('fRefSel'), inp = $('fRef');
+  if(!sel || !inp) return;
+  if(sel.value === '__OTHER__'){
+    inp.style.display = ''; inp.value = ''; inp.placeholder = 'Type the original invoice number'; inp.focus();
+  } else {
+    inp.style.display = 'none'; inp.value = sel.value;
+  }
+}
+
 function fillBuyer(){
   var c = DB.clients.find(function(x){return x.id===$('fBuyer').value;});
   $('fBNtn').value = c?c.ntn:''; $('fBReg').value = c?c.reg:'';
   $('fBAddr').value = c?c.addr:''; $('fBProv').value = c?c.prov:'';
+  if(typeof loadRefInvoices==='function') loadRefInvoices();
 }
 
 function addLine(data){
@@ -2556,6 +2609,7 @@ function docTypeChange(){
   var type = $('fType') ? $('fType').value : '';
   var refField = $('fRef');
   var isNote = (type === 'Credit Note' || type === 'Debit Note');
+  if(typeof loadRefInvoices==='function') loadRefInvoices();
   var isQuote = (type === 'Quotation');
   // Reason field - sirf credit/debit note par
   if($('reasonField')) $('reasonField').style.display = isNote ? 'block' : 'none';
@@ -4207,7 +4261,7 @@ var FEATURES = {
   data:        { label:'Backup & Restore',      page:'data' },
   users:       { label:'User Management',       page:'users' },
   audit:       { label:'Activity Log',          page:'audit' },
-  verify:      { label:'FBR Verification',      page:'verify' },
+  verify:      { label:'Online FBR Verification', page:'verify' },
   commercial:  { label:'Commercial Invoice',    page:null },
   quotation:   { label:'Quotation',             page:null },
   creditnote:  { label:'Credit/Debit Notes',    page:null },
@@ -7986,7 +8040,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '18.4',
+  version: '18.6',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
