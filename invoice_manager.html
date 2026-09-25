@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 19.1 — FBR Digital Invoicing
+   Invoice Manager 19.2 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.1 · Retry+English · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 19.2 · Buyer Type Retry · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -8060,7 +8060,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '19.1',
+  version: '19.2',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
@@ -11572,6 +11572,24 @@ function asRunScenario(code){
             var errs = (d.errors||[]).join('; ') || d.msg || 'rejected';
             // 0090 = retail price chahiye - ek dafa retry
             if(/0090/.test(errs) && !retryFixed){ asLog('  · 0090 — retrying with retail price…'); return trySubmit(true); }
+            // 0053 = buyer registration type mismatch - buyer type SWAP karke retry
+            if(/0053/.test(errs) && cfg._regSwap == null){
+              cfg._regSwap = 1;
+              var swapInv = JSON.parse(JSON.stringify(inv));
+              var newReg = (inv.buyer && inv.buyer.reg === 'Registered') ? 'Unregistered' : 'Registered';
+              var newNtn = (newReg === 'Unregistered') ? '1000000000000' : '0788762';
+              swapInv.buyer.reg = newReg; swapInv.buyer.ntn = newNtn;
+              asLog('  · 0053 — buyer type mismatch, retrying as ' + newReg + '…');
+              return callBridge({ action:'invoice', invoice: fbrPayload(swapInv), meta:{no:inv.no} })
+                .then(function(sd){ if(sd.ok){ asLog('✓ ' + code + ' ACCEPTED (buyer ' + newReg + ')','ok'); return {code:code,ok:true}; }
+                  asLog('✗ ' + code + ' — ' + ((sd.errors||[]).join(';')||sd.msg),'bad'); return {code:code,ok:false}; })
+                .catch(function(){ return {code:code,ok:false}; });
+            }
+            // 0205 = scenario not valid for unregistered seller - skip (seller registration issue)
+            if(/0205/.test(errs)){
+              asLog('  · 0205 — this scenario needs a registered seller; your FBR token is for an unregistered NTN. Skipping.','bad');
+              return { code: code, ok: false, skip: true };
+            }
             // 0059 = min price - value barha ke retry (min FBR ke message se nikaalo)
             if(/0059|less than minimum/i.test(errs) && cfg._minRetry == null){
               cfg._minRetry = 1;
