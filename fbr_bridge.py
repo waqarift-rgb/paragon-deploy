@@ -456,6 +456,10 @@ def reg_type(c, ntn, env):
             "name": data.get("BUSINESS_NAME") or data.get("NAME") or data.get("TAXPAYER_NAME") or "",
             "address": data.get("ADDRESS") or data.get("BUSINESS_ADDRESS") or "",
             "province": data.get("PROVINCE") or data.get("PROVINCE_NAME") or "",
+            # Business nature / activity (Importer, Exporter, General Order Supplier, etc.)
+            "businessNature": data.get("BUSINESS_NATURE") or data.get("NATURE_OF_BUSINESS") or data.get("BUSINESS_ACTIVITY") or "",
+            "registrationStatus": data.get("REGISTRATION_STATUS") or data.get("STATUS") or "",
+            "businessActivity": data.get("PRINCIPAL_ACTIVITY") or data.get("ACTIVITY") or data.get("SECTOR") or "",
             "raw": data}
 
 
@@ -615,8 +619,58 @@ def admin_clients_view():
             "users": users_list,
             "userCount": len(users_list),
             "features": c.get("features", {}),
+            "planName": c.get("plan_name", ""),
+            "planFee": c.get("plan_fee", ""),
+            "expiry": c.get("expiry", ""),
+            "paidTill": c.get("paid_till", ""),
+            "paymentNote": c.get("payment_note", ""),
         })
     return out
+
+
+PLANS_PATH = os.path.join(HERE, "plans.json")
+
+def load_plans():
+    try:
+        with open(PLANS_PATH, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        return {}
+
+def save_plans(plans):
+    tmp = PLANS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(plans, fh, indent=2)
+    os.replace(tmp, PLANS_PATH)
+    try:
+        os.chmod(PLANS_PATH, 0o600)
+    except OSError:
+        pass
+
+def admin_plans_view():
+    return load_plans()
+
+def admin_save_plan(d):
+    """Admin: plan banao/edit (features bundle)."""
+    name = str(d.get("name") or "").strip()
+    if not name:
+        return {"ok": False, "msg": "Give the plan a name."}
+    plans = load_plans()
+    plans[name] = {
+        "name": name,
+        "fee": str(d.get("fee") or "").strip(),
+        "features": d.get("features") if isinstance(d.get("features"), dict) else {},
+    }
+    save_plans(plans)
+    return {"ok": True}
+
+def admin_delete_plan(name):
+    plans = load_plans()
+    name = str(name or "").strip()
+    if name in plans:
+        del plans[name]
+        save_plans(plans)
+    return {"ok": True}
 
 
 def admin_save_features(d):
@@ -717,6 +771,19 @@ def admin_save_client(d):
     if "features" in d and isinstance(d.get("features"), dict):
         c["features"] = d.get("features")
 
+    # Plan assign (plan ke features auto + complementary)
+    if d.get("assignedPlan") is not None: c["assigned_plan"] = str(d.get("assignedPlan") or "").strip()
+    if d.get("complementary") is not None: c["complementary"] = bool(d.get("complementary"))
+    if d.get("complementaryFeatures") is not None and isinstance(d.get("complementaryFeatures"), list):
+        c["complementary_features"] = d.get("complementaryFeatures")
+
+    # Payment / Subscription tracking
+    if d.get("planName") is not None: c["plan_name"] = str(d.get("planName") or "").strip()
+    if d.get("planFee") is not None: c["plan_fee"] = str(d.get("planFee") or "").strip()
+    if d.get("expiry") is not None: c["expiry"] = str(d.get("expiry") or "").strip()
+    if d.get("paidTill") is not None: c["paid_till"] = str(d.get("paidTill") or "").strip()
+    if d.get("paymentNote") is not None: c["payment_note"] = str(d.get("paymentNote") or "").strip()
+
     lu = str(d.get("loginUser") or "").strip().lower()
     lp = str(d.get("loginPass") or "").strip()
     if lu:
@@ -772,6 +839,9 @@ def admin_handle(path, req):
     if path == "/admin/toggle":  return admin_toggle_active(req)
     if path == "/admin/toggleuser": return admin_toggle_user(req)
     if path == "/admin/features": return admin_save_features(req)
+    if path == "/admin/plans":    return {"ok": True, "plans": admin_plans_view()}
+    if path == "/admin/saveplan": return admin_save_plan(req)
+    if path == "/admin/delplan":  return admin_delete_plan(req.get("name"))
     if path == "/admin/lock":
         _sessions.pop(req.get("token"), None)
         return {"ok": True, "msg": "Locked."}
@@ -894,6 +964,15 @@ def client_login(cid, req):
         return {"ok": False, "msg": "Wrong username or password."}
     if not c.get("active", True):
         return {"ok": False, "msg": "This account is switched off. Contact your provider."}
+    # Subscription expiry check (auto-block agar expire ho gaya)
+    exp = c.get("expiry", "")
+    if exp:
+        try:
+            exp_date = datetime.datetime.strptime(exp, "%Y-%m-%d").date()
+            if datetime.date.today() > exp_date:
+                return {"ok": False, "msg": "Your subscription has expired. Please contact your provider to renew."}
+        except (ValueError, TypeError):
+            pass
     stored_hash = c.get("login_hash", "")
     stored_salt = c.get("login_salt", "")
     if not stored_hash:
@@ -909,6 +988,12 @@ def client_login(cid, req):
             "mustChange": bool(c.get("login_mustchange", False)),
             "company": c.get("name", ""),
             "features": c.get("features", {}),
+            "planInfo": {
+                "name": c.get("assigned_plan", ""),
+                "complementary": bool(c.get("complementary", False)),
+                "complementaryFeatures": c.get("complementary_features", []),
+                "expiry": c.get("expiry", "")
+            },
             "companyDetail": {
                 "name": c.get("name", ""),
                 "ntn": c.get("ntn", ""),
@@ -1301,7 +1386,7 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
     margin-bottom:10px">
     <div><h2>Companies</h2>
      <div class="small" id="count"></div></div>
-    <button onclick="openForm()">+ Add a company</button>
+    <button class="ghost" onclick="openPlans()">Manage Plans</button> <button onclick="openForm()">+ Add a company</button>
    </div>
    <div id="list"></div>
   </div>
@@ -1368,6 +1453,31 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
    <div class="field"><label>Login password</label>
     <input type="text" id="fLoginPass" placeholder="set an initial password">
     <div class="help">The client signs in with this, then changes it. Without a login set here, the client cannot access the software.</div></div>
+
+   <div style="border-top:1px solid #e2e8f0;margin:16px 0 8px;padding-top:14px;font-weight:600;color:#1C2E4A">Plan &amp; Access</div>
+   <div class="field"><label>Assign a plan</label>
+    <select id="fAssignedPlan" onchange="planAssigned()"><option value="">— no plan —</option></select>
+    <div class="help">The plan's features are applied automatically. You can still add extra features below.</div></div>
+   <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:13.5px">
+     <input type="checkbox" id="fComplementary" style="width:auto">
+     Complementary account — no monthly charges (for friends/partners)</label></div>
+
+   <div style="border-top:1px solid #e2e8f0;margin:16px 0 8px;padding-top:14px;font-weight:600;color:#1C2E4A">Subscription &amp; Payment</div>
+   <div class="row">
+    <div class="field"><label>Plan name</label>
+     <input type="text" id="fPlanName" placeholder="e.g. Premium, Basic"></div>
+    <div class="field"><label>Monthly fee</label>
+     <input type="text" id="fPlanFee" placeholder="e.g. 5000"></div>
+   </div>
+   <div class="row">
+    <div class="field"><label>Paid till</label>
+     <input type="date" id="fPaidTill"></div>
+    <div class="field"><label>Expiry date <span class="small">— access blocked after this</span></label>
+     <input type="date" id="fExpiry">
+     <div class="help">Leave blank for no expiry. Client is auto-blocked after this date.</div></div>
+   </div>
+   <div class="field"><label>Payment note</label>
+    <input type="text" id="fPaymentNote" placeholder="e.g. Paid via bank, ref 12345"></div>
 
    <div class="field"><label style="display:flex;align-items:center;gap:8px;
      font-weight:400;font-size:13.5px">
@@ -1479,7 +1589,7 @@ function loadList(){
       return;
     }
     $('list').innerHTML = '<table><tr><th>Company</th><th>Client id</th>' +
-      '<th>Sandbox</th><th>Production</th><th>Status</th><th></th></tr>' +
+      '<th>Sandbox</th><th>Production</th><th>Status</th><th>Subscription</th><th></th></tr>' +
       c.map(function(x){
         return '<tr><td><b>' + esc(x.name) + '</b>' +
           (x.ntn ? '<div class="small">NTN ' + esc(x.ntn) + '</div>' : '') + '</td>' +
@@ -1490,6 +1600,14 @@ function loadList(){
                                  : '<span class="pill no">none</span>') + '</td>' +
           '<td>' + (x.active ? '<span class="pill on">on</span>'
                              : '<span class="pill off">off</span>') + '</td>' +
+          '<td>' + (function(){
+            if(!x.expiry) return '<span style="color:#94a3b8;font-size:11px">no expiry</span>';
+            var exp = new Date(x.expiry); var today = new Date(); today.setHours(0,0,0,0);
+            var days = Math.ceil((exp - today) / 86400000);
+            if(days < 0) return '<span class="pill off">expired</span>';
+            if(days <= 7) return '<span style="color:#D97706;font-weight:600;font-size:11px">' + days + ' days left</span>';
+            return '<span style="color:#059669;font-size:11px">' + x.expiry + '</span>';
+          })() + (x.planName ? '<div style="font-size:10px;color:#94a3b8">' + esc(x.planName) + '</div>' : '') + '</td>' +
           '<td style="text-align:right;white-space:nowrap">' +
             (x.userCount ? '<button class="ghost sm" onclick="showUsers(\'' + esc(x.id) + '\')">Users (' + x.userCount + ')</button> ' : '') +
             '<button class="ghost sm" onclick="showFeatures(\'' + esc(x.id) + '\')">Features</button> ' +
@@ -1558,6 +1676,81 @@ function saveFeatures(id){
   });
 }
 
+// Plans management
+var ALL_FEATURES_LIST = [
+  ['reports','Reports'],['returnSummary','Tax Return Summary'],['clients','Buyers'],
+  ['items','Products'],['hs','HS Code Search'],['autoscenario','Auto Scenarios'],
+  ['downloadAll','Download All'],['bulkImport','Bulk Import'],['emailInvoice','Email Invoices'],
+  ['fbrProof','FBR Tax Proof'],['autoTax','Automatic Tax Rate'],['commercial','Commercial Invoice'],
+  ['quotation','Quotation'],['creditnote','Credit/Debit Notes'],['challan','Delivery Challan'],
+  ['recurring','Recurring Invoices'],['payment','Payment Tracking'],['statement','Buyer Statements'],
+  ['data','Backup & Restore'],['users','User Management'],['audit','Activity Log']
+];
+function openPlans(){
+  post('/admin/plans').then(function(d){
+    var plans = (d && d.plans) || {};
+    window._plans = plans;
+    var list = Object.keys(plans).map(function(name){
+      var p = plans[name];
+      var fcount = Object.keys(p.features||{}).filter(function(k){return p.features[k];}).length;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:8px">'+
+        '<div><b>'+esc(name)+'</b>'+(p.fee?' <span style="color:#666">— '+esc(p.fee)+'/mo</span>':'')+
+        '<div style="font-size:11px;color:#888">'+fcount+' features</div></div>'+
+        '<div><button class="ghost sm" onclick="editPlan(\''+esc(name)+'\')">Edit</button> '+
+        '<button class="danger sm" onclick="delPlan(\''+esc(name)+'\')">Delete</button></div></div>';
+    }).join('') || '<div style="color:#888;padding:12px">No plans yet. Create one below.</div>';
+    showModal('<h3 style="margin-bottom:12px">Plans</h3>'+
+      '<p style="font-size:12.5px;color:#666;margin-bottom:14px">Create feature bundles. Assign a plan to a company and its features are set automatically.</p>'+
+      list +
+      '<div style="margin-top:14px;text-align:right">'+
+        '<button class="ghost" onclick="closeModalX()">Close</button> '+
+        '<button class="primary" onclick="newPlan()">+ New plan</button></div>');
+  });
+}
+function newPlan(){ editPlan(null); }
+function editPlan(name){
+  var p = name ? (window._plans[name]||{}) : {name:'',fee:'',features:{}};
+  var feats = p.features || {};
+  var rows = ALL_FEATURES_LIST.map(function(f){
+    return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12.5px">'+
+      '<input type="checkbox" data-planfeat="'+f[0]+'" '+(feats[f[0]]?'checked':'')+' style="width:auto"> '+esc(f[1])+'</label>';
+  }).join('');
+  showModal('<h3 style="margin-bottom:12px">'+(name?'Edit plan':'New plan')+'</h3>'+
+    '<div style="margin-bottom:10px"><label style="font-size:12px;font-weight:600">Plan name</label>'+
+      '<input id="planName" type="text" value="'+esc(p.name||'')+'"'+(name?' readonly':'')+' style="width:100%"></div>'+
+    '<div style="margin-bottom:10px"><label style="font-size:12px;font-weight:600">Monthly fee (optional)</label>'+
+      '<input id="planFee" type="text" value="'+esc(p.fee||'')+'" placeholder="e.g. 5000" style="width:100%"></div>'+
+    '<div style="font-size:12px;font-weight:600;margin:10px 0 6px">Features in this plan</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 14px;max-height:220px;overflow:auto">'+rows+'</div>'+
+    '<div style="margin-top:14px;text-align:right">'+
+      '<button class="ghost" onclick="openPlans()">Back</button> '+
+      '<button class="primary" onclick="savePlan()">Save plan</button></div>');
+}
+function savePlan(){
+  var name = document.getElementById('planName').value.trim();
+  if(!name){ say('Give the plan a name','bad'); return; }
+  var feats = {};
+  document.querySelectorAll('[data-planfeat]').forEach(function(inp){ feats[inp.getAttribute('data-planfeat')] = inp.checked; });
+  var fee = document.getElementById('planFee').value.trim();
+  post('/admin/saveplan', {name:name, fee:fee, features:feats}).then(function(d){
+    if(d.ok){ say('Plan saved','good'); openPlans(); } else say(d.msg||'Failed','bad');
+  });
+}
+function delPlan(name){
+  if(!confirm('Delete plan '+name+'?')) return;
+  post('/admin/delplan', {name:name}).then(function(d){ if(d.ok){ say('Plan deleted','good'); openPlans(); } });
+}
+// Generic modal helpers (agar nahi hain)
+function showModal(html){
+  var box = document.getElementById('genModal');
+  if(!box){ box=document.createElement('div'); box.id='genModal';
+    box.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:1000';
+    document.body.appendChild(box); }
+  box.innerHTML='<div style="background:#fff;border-radius:10px;padding:24px;max-width:560px;width:90%;max-height:82vh;overflow:auto">'+html+'</div>';
+  box.style.display='flex';
+}
+function closeModalX(){ var b=document.getElementById('genModal'); if(b) b.style.display='none'; }
+
 function toggleActive(id, active){
   var word = active ? 'unblock' : 'block';
   if(!confirm('Are you sure you want to ' + word + ' this company?')) return;
@@ -1604,8 +1797,9 @@ function toggleUser(id, user, active){
 /* ---------- add and edit ---------- */
 function openForm(){
   EDITING = null;
+  setTimeout(loadPlansDropdown, 100);
   $('formTitle').textContent = 'Add a company';
-  ['fName','fId','fNtn','fStrn','fAddr','fPhone','fProv','fEmail','fWeb','fSandbox','fProd','fSecret','fLoginUser','fLoginPass'].forEach(function(f){
+  ['fName','fId','fNtn','fStrn','fAddr','fPhone','fProv','fEmail','fWeb','fSandbox','fProd','fSecret','fLoginUser','fLoginPass','fPlanName','fPlanFee','fPaidTill','fExpiry','fPaymentNote','fAssignedPlan','fComplementary'].forEach(function(f){
     $(f).value = ''; });
   $('fActive').checked = true;
   $('fId').disabled = false;
@@ -1617,6 +1811,36 @@ function openForm(){
 }
 
 function closeForm(){ hide('form'); say(''); }
+
+/* Plan assign - features auto */
+function loadPlansDropdown(){
+  post('/admin/plans').then(function(d){
+    var plans = (d && d.plans) || {};
+    window._plans = plans;
+    var sel = document.getElementById('fAssignedPlan');
+    if(sel){
+      var cur = sel.value;
+      sel.innerHTML = '<option value="">— no plan —</option>' +
+        Object.keys(plans).map(function(n){ return '<option value="'+esc(n)+'">'+esc(n)+(plans[n].fee?' ('+esc(plans[n].fee)+'/mo)':'')+'</option>'; }).join('');
+      sel.value = cur;
+    }
+  });
+}
+function planAssigned(){
+  var name = document.getElementById('fAssignedPlan').value;
+  var plans = window._plans || {};
+  var plan = plans[name];
+  if(plan && plan.features){
+    // plan ke features company ko auto-set (form mein features section agar ho)
+    // note: features Features button se manage hote, plan assign se base set
+    if(plan.fee && document.getElementById('fPlanFee') && !document.getElementById('fPlanFee').value){
+      document.getElementById('fPlanFee').value = plan.fee;
+    }
+    if(document.getElementById('fPlanName') && !document.getElementById('fPlanName').value){
+      document.getElementById('fPlanName').value = name;
+    }
+  }
+}
 
 function editClient(id){
   var x = (window._clients || []).filter(function(c){ return c.id === id; })[0];
@@ -1637,6 +1861,13 @@ function editClient(id){
   $('fActive').checked = !!x.active;
   /* tokens are never sent back in full, so blank means "keep what is stored" */
   $('fSandbox').value = ''; $('fProd').value = ''; $('fSecret').value = '';
+  if($('fPlanName')) $('fPlanName').value = x.planName || '';
+  if($('fPlanFee')) $('fPlanFee').value = x.planFee || '';
+  if($('fPaidTill')) $('fPaidTill').value = x.paidTill || '';
+  if($('fExpiry')) $('fExpiry').value = x.expiry || '';
+  if($('fPaymentNote')) $('fPaymentNote').value = x.paymentNote || '';
+  loadPlansDropdown();
+  setTimeout(function(){ if($('fAssignedPlan')) $('fAssignedPlan').value = x.planName || ''; if($('fComplementary')) $('fComplementary').checked = !!x.complementary; }, 300);
   $('fSandbox').placeholder = x.sandbox ? x.sandbox + ' \u2014 leave blank to keep'
                                         : 'paste from IRIS';
   $('fProd').placeholder    = x.production ? x.production + ' \u2014 leave blank to keep'
@@ -1654,7 +1885,7 @@ function saveClient(){
     ntn: $('fNtn').value,
     sandbox: $('fSandbox').value,
     production: $('fProd').value,
-    secret: $('fSecret').value, strn: $('fStrn')?$('fStrn').value:'', addr: $('fAddr')?$('fAddr').value:'', phone: $('fPhone')?$('fPhone').value:'', prov: $('fProv')?$('fProv').value:'', email: $('fEmail')?$('fEmail').value:'', web: $('fWeb')?$('fWeb').value:'', loginUser: $('fLoginUser')?$('fLoginUser').value:'', loginPass: $('fLoginPass')?$('fLoginPass').value:'',
+    secret: $('fSecret').value, strn: $('fStrn')?$('fStrn').value:'', addr: $('fAddr')?$('fAddr').value:'', phone: $('fPhone')?$('fPhone').value:'', prov: $('fProv')?$('fProv').value:'', email: $('fEmail')?$('fEmail').value:'', web: $('fWeb')?$('fWeb').value:'', loginUser: $('fLoginUser')?$('fLoginUser').value:'', loginPass: $('fLoginPass')?$('fLoginPass').value:'', planName: $('fPlanName')?$('fPlanName').value:'', assignedPlan: $('fAssignedPlan')?$('fAssignedPlan').value:'', complementary: $('fComplementary')?$('fComplementary').checked:false, planFee: $('fPlanFee')?$('fPlanFee').value:'', paidTill: $('fPaidTill')?$('fPaidTill').value:'', expiry: $('fExpiry')?$('fExpiry').value:'', paymentNote: $('fPaymentNote')?$('fPaymentNote').value:'',
     active: $('fActive').checked
   }}).then(function(d){
     if(!d.ok) return say(d.msg, 'bad');
@@ -1724,7 +1955,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
             self.end_headers()
             self.wfile.write(body)
             return
@@ -1737,7 +1970,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-store")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
                 self.end_headers()
                 self.wfile.write(body)
                 return

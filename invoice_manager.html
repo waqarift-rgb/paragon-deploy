@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 15.2 — FBR Digital Invoicing
+   Invoice Manager 16.8 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 15.2 · Email Test · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 16.8 · Verify+Nature · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -532,6 +532,7 @@ tbody tr:hover{background:var(--surface-2)}
       <div class="nav-group">Records</div>
       <button class="nav-item" data-page="clients"><span class="nav-ico">◍</span><span>Buyers</span><span class="nav-count" id="cntCli"></span></button>
       <button class="nav-item" data-page="items"><span class="nav-ico">◈</span><span>Products</span><span class="nav-count" id="cntItm"></span></button>
+      <button class="nav-item" data-page="verify"><span class="nav-ico">✓</span><span>Verification</span></button>
       <div class="nav-group">Setup</div>
       <button class="nav-item" data-page="company"><span class="nav-ico">⌂</span><span>Company</span></button>
       <button class="nav-item" data-page="fbr"><span class="nav-ico">⇄</span><span>FBR link</span></button>
@@ -627,13 +628,29 @@ tbody tr:hover{background:var(--surface-2)}
                 <input id="fNo" type="text"><div class="help">Generated automatically — you can change it</div></div>
               <div class="field"><label>Invoice date <span class="req">*</span></label><input id="fDate" type="date"></div>
               <div class="field"><label>Document type</label>
-                <select id="fType">
+                <select id="fType" onchange="docTypeChange()">
                   <option>Sale Invoice</option>
+                  <option>Quotation</option>
                   <option>Debit Note</option>
                   <option>Credit Note</option>
                 </select></div>
               <div class="field"><label>Original Invoice Reference</label>
                 <input id="fRef" type="text" placeholder="For debit / credit note"></div>
+              <div class="field" id="reasonField" style="display:none"><label>Reason for the note <span class="req">*</span></label>
+                <select id="fReason" onchange="reasonChange()">
+                  <option value="">— choose a reason —</option>
+                  <option>Cancellation of Supply</option>
+                  <option>Return of Supply</option>
+                  <option>Change in Nature of Supply</option>
+                  <option>Change in Quantity</option>
+                  <option>Change in Value</option>
+                  <option>Change in Sales Tax Rate</option>
+                  <option>Others</option>
+                </select>
+                <div class="help">FBR requires a reason for credit and debit notes</div></div>
+              <div class="field" id="reasonRemarksField" style="display:none"><label>Remarks <span class="req">*</span></label>
+                <input id="fReasonRemarks" type="text" placeholder="Explain the reason">
+                <div class="help">Required when the reason is &ldquo;Others&rdquo;</div></div>
             </div>
 
             <div class="section-rule">Buyer</div>
@@ -736,7 +753,7 @@ tbody tr:hover{background:var(--surface-2)}
           <thead><tr>
             <th>Invoice #</th><th>Date</th><th>Buyer</th><th>Type</th>
             <th class="num">Excl. tax</th><th class="num">Tax</th><th class="num">Total</th>
-            <th>FBR</th><th style="width:150px"></th>
+            <th>FBR</th><th>Payment</th><th style="width:150px"></th>
           </tr></thead>
           <tbody id="regRows"></tbody>
         </table></div></div>
@@ -823,6 +840,24 @@ tbody tr:hover{background:var(--surface-2)}
           <thead><tr><th>Description</th><th>HS code</th><th>Unit</th><th class="num">Rate</th><th class="num">Tax %</th><th style="width:120px"></th></tr></thead>
           <tbody id="itmRows"></tbody>
         </table></div></div>
+      </div>
+
+      <!-- VERIFICATION -->
+      <div class="page" id="pg-verify">
+        <div class="card" style="max-width:760px">
+          <div class="card-hd"><h2>FBR Verification</h2>
+            <div class="spacer"></div><span style="font-size:12px;color:var(--ink-3)">Check any NTN or CNIC against FBR</span></div>
+          <div style="font-size:12.5px;color:var(--ink-2);line-height:1.7;margin-bottom:16px">
+            Enter an NTN or CNIC to check a business against FBR — their name, sales-tax registration status,
+            and whether they are on the Active Taxpayer List. Use this before dealing with a new buyer or supplier.
+          </div>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="flex:1;min-width:200px;margin:0"><label>NTN / CNIC</label>
+              <input id="vfNtn" type="text" placeholder="7 to 13 digits" onkeydown="if(event.key==='Enter')runVerify()"></div>
+            <button class="btn" onclick="runVerify()" style="height:42px">Verify with FBR</button>
+          </div>
+          <div id="vfResult" style="margin-top:20px"></div>
+        </div>
       </div>
 
       <!-- HS CODES -->
@@ -925,9 +960,14 @@ tbody tr:hover{background:var(--surface-2)}
 
             <div class="section-rule">Email Settings — send invoices from your own email</div>
             <div style="font-size:12.5px;color:var(--ink-2);line-height:1.7;margin:4px 0 14px">
-              Add your email here to send invoices directly from the software, under your own address.
-              Choose your email provider below and the server settings fill in automatically.
+              Add your email to send invoices directly from the software, under your own address.
+              Opening these settings asks for the administrator password.
             </div>
+            <div id="emailSettingsBtn" style="margin-bottom:16px">
+              <button type="button" class="btn" onclick="openEmailSettings()">Open Email Settings</button>
+              <span style="font-size:12px;color:var(--ink-3);margin-left:10px">Protected — administrator only</span>
+            </div>
+            <div id="emailSettingsBox" style="display:none">
             <div class="grid g2">
               <div class="field"><label>Email provider</label>
                 <select id="coSmtpProvider" onchange="smtpProviderPick()">
@@ -963,6 +1003,48 @@ tbody tr:hover{background:var(--surface-2)}
               <span id="emailTestResult" style="font-size:12.5px"></span>
             </div>
 
+            </div><!-- emailSettingsBox end -->
+
+            <div class="section-rule">Document Designs — logo, colours &amp; layout</div>
+            <div style="font-size:12.5px;color:var(--ink-2);line-height:1.7;margin:4px 0 14px">
+              Design how your documents look — invoice, quotation, credit note and delivery challan.
+              Set one master design and it applies to all, or customise each document separately.
+              Opening these settings asks for the administrator password.
+            </div>
+            <div style="margin-bottom:16px">
+              <button type="button" class="btn" onclick="openDocDesigns()">Open Document Designs</button>
+              <span style="font-size:12px;color:var(--ink-3);margin-left:10px">Protected — administrator only</span>
+            </div>
+
+            <div class="section-rule">Quotation Settings</div>
+            <div style="font-size:12.5px;color:var(--ink-2);line-height:1.7;margin:4px 0 14px">
+              Set the defaults for new quotations. You can still change these on each quotation as you make it.
+              Opening these settings asks for the administrator password.
+            </div>
+            <div id="quoteSettingsBtn" style="margin-bottom:16px">
+              <button type="button" class="btn" onclick="openQuoteSettings()">Open Quotation Settings</button>
+              <span style="font-size:12px;color:var(--ink-3);margin-left:10px">Protected — administrator only</span>
+            </div>
+            <div id="quoteSettingsBox" style="display:none">
+              <div class="set-row">
+                <div class="set-txt"><div class="set-t">Include sales tax by default</div>
+                  <div class="set-d">New quotations include sales tax. You can switch it off on any single quotation.</div></div>
+                <label class="tgl"><input type="checkbox" id="coQuoteTax" checked><span class="tgl-s"></span></label>
+              </div>
+              <div class="grid g2" style="margin-top:14px">
+                <div class="field"><label>Default tax rate (%)</label>
+                  <input id="coQuoteTaxRate" type="number" step="any" value="18" placeholder="18">
+                  <div class="help">Used on new quotations — changeable per quotation</div></div>
+                <div class="field"><label>Valid for (days)</label>
+                  <input id="coQuoteValid" type="number" value="15" placeholder="15">
+                  <div class="help">Quotation validity — changeable per quotation</div></div>
+              </div>
+              <div class="field" style="margin-top:12px"><label>Follow-up reminder (days after quotation)</label>
+                <input id="coQuoteFollowup" type="number" value="3" placeholder="3">
+                <div class="help">Remind you to follow up this many days after sending a quotation. Leave blank for no reminder.</div></div>
+              <div style="margin-top:14px"><button class="btn" onclick="saveQuoteSettings()">Save quotation settings</button></div>
+            </div>
+
             <div class="section-rule">Commercial Invoice</div>
             <div style="margin-top:4px">
               <div class="set-row">
@@ -990,7 +1072,7 @@ tbody tr:hover{background:var(--surface-2)}
                   <input id="coCiTitle" type="text" placeholder="COMMERCIAL INVOICE">
                   <div class="help">Heading printed on the commercial copy</div></div>
                 <div class="field"><label>Lock settings with a password</label>
-                  <input id="coCiLock" type="password" placeholder="Leave blank for no lock">
+                  <input id="coCiLock" type="hidden">
                   <div class="help">Once set, these commercial settings cannot be changed without this password</div></div>
               </div>
               <div class="field" style="margin-top:12px"><label>Commercial invoice footer / terms</label>
@@ -1734,6 +1816,70 @@ function testFbr(){
 /* old sendToFbr placeholder removed */
 
 /* ---------- CLIENTS ---------- */
+/* Buyer Statement / Ledger - invoices + outstanding */
+function buyerStatement(cid){
+  var c = DB.clients.find(function(x){ return x.id === cid; });
+  if(!c) return;
+  var invs = DB.invoices.filter(function(v){ return v.buyerId === cid || (v.buyer && v.buyer.name === c.name); });
+  invs.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
+
+  var totalInv = 0, totalPaid = 0;
+  var rows = invs.map(function(v){
+    totalInv += (+v.total || 0);
+    if(v.paid) totalPaid += (+v.total || 0);
+    return '<tr><td><b>'+esc(v.no)+'</b></td><td>'+dmy(v.date)+'</td>'+
+      '<td class="num">'+money(v.total)+'</td>'+
+      '<td>'+(v.paid ? '<span class="pill on">Paid</span>'+(v.paidDate?' <span style="font-size:10px;color:var(--ink-3)">'+dmy(v.paidDate)+'</span>':'') : '<span class="pill" style="background:#FEF6EC;color:#D97706">Pending</span>')+'</td></tr>';
+  }).join('');
+  var outstanding = totalInv - totalPaid;
+
+  window._stmtData = { client:c, invs:invs, totalInv:totalInv, totalPaid:totalPaid, outstanding:outstanding };
+
+  modal('Statement — ' + esc(c.name),
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:18px">'+
+      '<div style="background:#F0F7FF;border-radius:8px;padding:14px"><div style="font-size:11px;color:#5A7290">Total Invoiced</div>'+
+        '<div style="font-size:19px;font-weight:700;color:#1B4F9C">'+money(totalInv)+'</div></div>'+
+      '<div style="background:#EDFBF3;border-radius:8px;padding:14px"><div style="font-size:11px;color:#3B7A5A">Total Paid</div>'+
+        '<div style="font-size:19px;font-weight:700;color:#059669">'+money(totalPaid)+'</div></div>'+
+      '<div style="background:'+(outstanding>0?'#FEF2F2':'#EDFBF3')+';border-radius:8px;padding:14px"><div style="font-size:11px;color:'+(outstanding>0?'#B45309':'#3B7A5A')+'">Outstanding</div>'+
+        '<div style="font-size:19px;font-weight:700;color:'+(outstanding>0?'#DC2626':'#059669')+'">'+money(outstanding)+'</div></div>'+
+    '</div>'+
+    (invs.length ?
+      '<div class="tbl-wrap" style="max-height:40vh;overflow:auto"><table><thead><tr><th>Invoice #</th><th>Date</th>'+
+        '<th class="num">Amount</th><th>Status</th></tr></thead><tbody>'+rows+
+        '<tr style="border-top:2px solid var(--line)"><td colspan="2"><b>Total</b></td>'+
+        '<td class="num"><b>'+money(totalInv)+'</b></td><td></td></tr>'+
+      '</tbody></table></div>' :
+      '<div style="text-align:center;color:var(--ink-3);padding:20px">No invoices for this buyer yet.</div>'),
+    [{t:'Print statement',cls:'ghost',f:'printStatement()'},
+     {t:'Close',cls:'',f:'closeModal()'}], true);
+}
+function printStatement(){
+  var d = window._stmtData; if(!d) return;
+  var c = DB.company;
+  var rows = d.invs.map(function(v){
+    return '<tr><td>'+esc(v.no)+'</td><td>'+dmy(v.date)+'</td><td style="text-align:right">'+money(v.total)+'</td>'+
+      '<td>'+(v.paid?'Paid':'Pending')+'</td></tr>';
+  }).join('');
+  var w = window.open('', '_blank');
+  w.document.write('<html><head><title>Statement - '+esc(d.client.name)+'</title>'+
+    '<style>body{font-family:Arial;max-width:750px;margin:24px auto;padding:0 20px}h1{color:#1C2E4A;font-size:22px}'+
+    'table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #ccc;padding:8px;font-size:13px;text-align:left}'+
+    '.sum{margin-top:16px;font-size:14px}.out{color:#DC2626;font-weight:700}</style></head><body>'+
+    '<h1>'+esc(c.name||'')+'</h1><div style="color:#666">Account Statement</div>'+
+    '<h2 style="font-size:16px;margin-top:16px">'+esc(d.client.name)+'</h2>'+
+    (d.client.ntn?'<div>NTN: '+esc(d.client.ntn)+'</div>':'')+
+    '<table><thead><tr><th>Invoice #</th><th>Date</th><th style="text-align:right">Amount</th><th>Status</th></tr></thead>'+
+    '<tbody>'+rows+'</tbody></table>'+
+    '<div class="sum">Total Invoiced: RS. '+money(d.totalInv)+'<br>'+
+    'Total Paid: RS. '+money(d.totalPaid)+'<br>'+
+    '<span class="out">Outstanding: RS. '+money(d.outstanding)+'</span></div>'+
+    '<div style="margin-top:30px;font-size:12px;color:#666">Generated '+dmy(today())+'</div>'+
+    '</body></html>');
+  w.document.close();
+  setTimeout(function(){ w.print(); }, 300);
+}
+
 function drawClients(){
   var q = ($('cqSearch').value||'').toLowerCase();
   var rows = DB.clients.filter(function(c){
@@ -1745,7 +1891,8 @@ function drawClients(){
       '<td>'+esc(c.prov)+'</td>'+
       '<td><span class="pill '+(c.reg==='Registered'?'sent':'draft')+'">'+esc(c.reg)+'</span></td>'+
       '<td>'+esc(c.phone)+'</td>'+
-      '<td><button class="btn sm ghost" onclick="openClient(\''+c.id+'\')">Edit</button> '+
+      '<td><button class="btn sm ghost" onclick="buyerStatement(\''+c.id+'\')">Statement</button> '+
+      '<button class="btn sm ghost" onclick="openClient(\''+c.id+'\')">Edit</button> '+
       '<button class="btn sm danger" onclick="delClient(\''+c.id+'\')">Delete</button></td></tr>';
   }).join('') : '<tr><td colspan="7"><div class="empty"><p>No buyers yet.</p>'+
     '<button class="btn" onclick="openClient()">Add Your First Buyer</button></div></td></tr>';
@@ -2055,8 +2202,15 @@ function drawReg(){
         (f.irn?'<div style="font-size:10.5px;color:var(--ink-3);font-family:var(--mono)">'+esc(f.irn)+'</div>':'')+
         (f.status==='failed'&&f.msg?'<div style="font-size:10.5px;color:var(--red)">'+esc(String(f.msg).slice(0,60))+'</div>':'')+
       '</td>'+
+      '<td>' + (v.type === 'Quotation' ?
+          '<button class="btn sm" onclick="convertQuote(\''+v.id+'\')" style="background:#059669">→ Invoice</button>' :
+          (v.paid ?
+            '<span class="pill on" title="Paid on '+esc(v.paidDate||'')+'">Paid</span>' :
+            '<button class="btn sm ghost" onclick="markPaid(\''+v.id+'\')" style="color:#D97706;border-color:#F5D9A8">Mark paid</button>')) + '</td>'+
       '<td><button class="btn sm ghost" onclick="printInvoice(\''+v.id+'\')">Print</button> '+
       ((DB.company.commercial&&DB.company.commercial.on)?'<button class="btn sm ghost" onclick="commercialMenu(\''+v.id+'\')">Commercial ▾</button> ':'')+
+      '<button class="btn sm ghost" onclick="printChallan(\''+v.id+'\')">Challan</button> '+
+      '<button class="btn sm ghost" onclick="duplicateInvoice(\''+v.id+'\')" title="Make a copy (for recurring/monthly billing)">Duplicate</button> '+
       '<button class="btn sm ghost" onclick="editInvoice(\''+v.id+'\')">Edit</button> '+
       '<button class="btn sm danger" onclick="delInvoice(\''+v.id+'\')">Del</button></td></tr>';
   }).join('') : '<tr><td colspan="9"><div class="empty"><p>No invoices match this view.</p>'+
@@ -2072,6 +2226,496 @@ function drawReg(){
 /* ---------- PRINT ---------- */
 /* Commercial Invoice - same data, commercial layout, tax hide option */
 /* Commercial menu - with ya without tax (client chune) */
+/* Quotation settings - verify -> khole + save/load */
+function openQuoteSettings(){
+  requireAdminAuth('Quotation Settings — administrator access', function(){
+    var box = $('quoteSettingsBox'), btn = $('quoteSettingsBtn');
+    if(box) box.style.display = 'block';
+    if(btn) btn.style.display = 'none';
+    // load
+    var qs = DB.company.quoteSettings || {};
+    if($('coQuoteTax')) $('coQuoteTax').checked = qs.includeTax !== false;
+    if($('coQuoteTaxRate')) $('coQuoteTaxRate').value = qs.taxRate != null ? qs.taxRate : 18;
+    if($('coQuoteValid')) $('coQuoteValid').value = qs.validDays != null ? qs.validDays : 15;
+    if($('coQuoteFollowup')) $('coQuoteFollowup').value = qs.followupDays != null ? qs.followupDays : 3;
+  });
+}
+function saveQuoteSettings(){
+  DB.company.quoteSettings = {
+    includeTax: $('coQuoteTax') ? $('coQuoteTax').checked : true,
+    taxRate: $('coQuoteTaxRate') ? (parseFloat($('coQuoteTaxRate').value)||18) : 18,
+    validDays: $('coQuoteValid') ? (parseInt($('coQuoteValid').value)||15) : 15,
+    followupDays: $('coQuoteFollowup') ? (parseInt($('coQuoteFollowup').value)||0) : 0
+  };
+  save();
+  toast('Quotation settings saved','good');
+}
+
+/* Email settings - admin (company email) ya user (own email) */
+function openEmailSettings(){
+  // Agar user (non-admin) ke paas ownEmail feature hai - uska apna email
+  if(ME && ME.role !== 'admin' && typeof feat==='function' && feat('ownEmail')){
+    openMyEmail();  // user ka apna email (no admin verify)
+    return;
+  }
+  // Company admin - verify
+  requireAdminAuth('Email Settings — administrator access', function(){
+    var box = $('emailSettingsBox');
+    var btn = $('emailSettingsBtn');
+    if(box) box.style.display = 'block';
+    if(btn) btn.style.display = 'none';
+    window._emailTarget = 'company';
+  });
+}
+
+/* User ka apna email setup (jise ownEmail feature mila) */
+function openMyEmail(){
+  var box = $('emailSettingsBox');
+  var btn = $('emailSettingsBtn');
+  if(box) box.style.display = 'block';
+  if(btn) btn.style.display = 'none';
+  window._emailTarget = 'user';
+  // user ka apna smtp load
+  var sm = (ME && ME.smtp) || {};
+  if($('coSmtpUser')) $('coSmtpUser').value = sm.user || '';
+  if($('coSmtpPass')) $('coSmtpPass').value = '';
+  if($('coSmtpHost')) $('coSmtpHost').value = sm.host || '';
+  if($('coSmtpPort')) $('coSmtpPort').value = sm.port || 587;
+  // heading badlo
+  var hd = document.querySelector('#pg-company .section-rule');
+  toast('These are your personal email settings — invoices you send will come from your own address','good');
+}
+
+/* ===== DOCUMENT DESIGN SYSTEM ===== */
+var DOC_LIST = [
+  {key:'invoice',   label:'Sales Tax Invoice'},
+  {key:'commercial',label:'Commercial Invoice'},
+  {key:'quotation', label:'Quotation'},
+  {key:'creditnote',label:'Credit / Debit Note'},
+  {key:'challan',   label:'Delivery Challan'}
+];
+
+/* Open - verify pehle */
+function openDocDesigns(){
+  requireAdminAuth('Document Designs — administrator access', function(){
+    showDocDesigns();
+  });
+}
+
+function showDocDesigns(){
+  DB.company.docDesigns = DB.company.docDesigns || { master:{} };
+  var m = DB.company.docDesigns.master || {};
+  var tabs = '<button class="btn sm" onclick="docDesignTab(\'master\')" id="ddTabMaster">Master (all documents)</button> ' +
+    DOC_LIST.map(function(d){
+      return '<button class="btn sm ghost" onclick="docDesignTab(\''+d.key+'\')" id="ddTab'+d.key+'">'+esc(d.label)+'</button>';
+    }).join(' ');
+  modal('Document Designs',
+    '<div style="font-size:12.5px;color:var(--ink-2);line-height:1.6;margin-bottom:14px">'+
+      'The <b>Master</b> design applies to every document. Open a document tab and turn off &ldquo;Use master&rdquo; to give it its own look.</div>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">'+tabs+'</div>'+
+    '<div id="ddBody"></div>',
+    [{t:'Close',cls:'',f:'closeModal()'}], true);
+  docDesignTab('master');
+}
+
+function docDesignTab(type){
+  DOC_LIST.forEach(function(d){ var b=$('ddTab'+d.key); if(b){ b.className='btn sm ghost'; } });
+  var mb=$('ddTabMaster'); if(mb) mb.className='btn sm ghost';
+  var active=$('ddTab'+type)||$('ddTabMaster'); if(active) active.className='btn sm';
+
+  var dd = DB.company.docDesigns;
+  var d = (type==='master') ? (dd.master||{}) : (dd[type]||{useMaster:true});
+  var isMaster = (type==='master');
+  var useMaster = !isMaster && (d.useMaster !== false);
+  var src = useMaster ? (dd.master||{}) : d;
+
+  var body =
+    (isMaster ? '' :
+      '<label style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#EFF4FE;border-radius:8px;margin-bottom:16px;cursor:pointer">'+
+        '<input type="checkbox" id="ddUseMaster" '+(useMaster?'checked':'')+' onchange="docDesignTab(\''+type+'\')" style="width:auto;margin:0">'+
+        '<span style="font-size:13px"><b>Use the master design</b> for this document (turn off to customise)</span></label>') +
+    (useMaster ?
+      '<div style="color:var(--ink-3);font-size:12.5px;padding:20px;text-align:center">This document uses the master design. Turn off &ldquo;Use master&rdquo; above to give it its own logo, colours and layout.</div>'
+    :
+    '<div class="grid g2">'+
+      '<div class="field"><label>Logo</label>'+
+        '<input type="file" id="ddLogo" accept="image/*" onchange="ddLogoPick(this)">'+
+        (src.logo?'<img src="'+src.logo+'" style="max-height:44px;margin-top:8px;border:1px solid var(--line);border-radius:4px;padding:2px">':'')+
+        '<div class="help">Leave blank to use the company logo</div></div>'+
+      '<div class="field"><label>Document title</label>'+
+        '<input type="text" id="ddTitle" value="'+esc(src.title||'')+'" placeholder="e.g. TAX INVOICE"></div>'+
+    '</div>'+
+    '<div class="grid g3" style="margin-top:14px">'+
+      '<div class="field"><label>Header colour</label>'+
+        '<input type="color" id="ddHeaderColor" value="'+esc(src.headerColor||'#1C2E4A')+'" style="height:38px;padding:2px"></div>'+
+      '<div class="field"><label>Accent colour</label>'+
+        '<input type="color" id="ddAccentColor" value="'+esc(src.accentColor||'#2563EB')+'" style="height:38px;padding:2px"></div>'+
+      '<div class="field"><label>Logo position</label>'+
+        '<select id="ddLogoPos"><option value="left"'+(src.logoPos==='left'?' selected':'')+'>Left</option>'+
+          '<option value="center"'+(src.logoPos==='center'?' selected':'')+'>Center</option>'+
+          '<option value="right"'+(src.logoPos==='right'?' selected':'')+'>Right</option></select></div>'+
+    '</div>'+
+    '<div class="field" style="margin-top:14px"><label>Footer text / terms</label>'+
+      '<textarea id="ddFooter" rows="2" placeholder="e.g. Goods once sold will not be returned. Subject to Karachi jurisdiction.">'+esc(src.footer||'')+'</textarea></div>'+
+    '<div class="field" style="margin-top:12px"><label>Bank / payment details (shown on document)</label>'+
+      '<input type="text" id="ddBank" value="'+esc(src.bank||'')+'" placeholder="e.g. HBL 1234-5678, IBAN PK..."></div>'+
+    '<div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">'+
+      '<button class="btn ghost" onclick="previewDesign(\''+type+'\')">Preview</button>'+
+      '<button class="btn" onclick="saveDocDesign(\''+type+'\')">Save '+(isMaster?'master design':'this design')+'</button></div>'+
+    '<div id="designPreview" style="margin-top:16px"></div>');
+
+  window._ddCurrentLogo = src.logo || '';
+  $('ddBody').innerHTML = body;
+}
+
+function ddLogoPick(input){
+  var file = input.files && input.files[0];
+  if(!file) return;
+  var r = new FileReader();
+  r.onload = function(e){ window._ddCurrentLogo = e.target.result; };
+  r.readAsDataURL(file);
+}
+
+function saveDocDesign(type){
+  DB.company.docDesigns = DB.company.docDesigns || { master:{} };
+  var isMaster = (type==='master');
+  if(!isMaster){
+    var useMaster = $('ddUseMaster') ? $('ddUseMaster').checked : true;
+    if(useMaster){
+      DB.company.docDesigns[type] = { useMaster:true };
+      save(); toast('Set to use the master design','good'); showDocDesigns(); return;
+    }
+  }
+  var design = {
+    useMaster: false,
+    logo: window._ddCurrentLogo || '',
+    title: $('ddTitle') ? $('ddTitle').value.trim() : '',
+    headerColor: $('ddHeaderColor') ? $('ddHeaderColor').value : '#1C2E4A',
+    accentColor: $('ddAccentColor') ? $('ddAccentColor').value : '#2563EB',
+    logoPos: $('ddLogoPos') ? $('ddLogoPos').value : 'left',
+    footer: $('ddFooter') ? $('ddFooter').value.trim() : '',
+    bank: $('ddBank') ? $('ddBank').value.trim() : ''
+  };
+  if(isMaster){ design.useMaster = undefined; DB.company.docDesigns.master = design; }
+  else { DB.company.docDesigns[type] = design; }
+  save();
+  toast((isMaster?'Master design':'Design')+' saved','good');
+  showDocDesigns();
+}
+
+/* Live preview - design kaisा dikhega */
+function previewDesign(type){
+  // current form se design lo
+  var logo = window._ddCurrentLogo || '';
+  var title = $('ddTitle') ? $('ddTitle').value : (type==='invoice'?'SALES TAX INVOICE':type.toUpperCase());
+  var hColor = $('ddHeaderColor') ? $('ddHeaderColor').value : '#1C2E4A';
+  var aColor = $('ddAccentColor') ? $('ddAccentColor').value : '#2563EB';
+  var logoPos = $('ddLogoPos') ? $('ddLogoPos').value : 'left';
+  var footer = $('ddFooter') ? $('ddFooter').value : '';
+  var c = DB.company;
+  var logoImg = logo || c.logo || '';
+  var prev = $('designPreview');
+  if(!prev) return;
+  prev.innerHTML =
+    '<div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:10px;background:#fff;color:#333">'+
+      '<div style="background:'+esc(hColor)+';color:#fff;padding:12px 16px;display:flex;justify-content:'+(logoPos==='center'?'center':(logoPos==='right'?'flex-end':'space-between'))+';align-items:center">'+
+        (logoImg?'<img src="'+logoImg+'" style="max-height:30px;background:#fff;padding:2px;border-radius:3px">':'<b style="font-size:13px">'+esc(c.name||'Company')+'</b>')+
+        (logoPos!=='center'?'<div style="font-size:14px;font-weight:700">'+esc(title||'DOCUMENT')+'</div>':'')+
+      '</div>'+
+      (logoPos==='center'?'<div style="text-align:center;font-size:14px;font-weight:700;color:'+esc(hColor)+';padding:8px">'+esc(title||'DOCUMENT')+'</div>':'')+
+      '<div style="padding:14px 16px">'+
+        '<div style="display:flex;justify-content:space-between;margin-bottom:10px"><span><b>Buyer:</b> ABC Trading Co</span><span><b>Date:</b> '+dmy(today())+'</span></div>'+
+        '<table style="width:100%;border-collapse:collapse"><tr style="background:'+esc(aColor)+'22">'+
+          '<th style="border:1px solid '+esc(aColor)+';padding:5px;text-align:left">Description</th>'+
+          '<th style="border:1px solid '+esc(aColor)+';padding:5px">Qty</th>'+
+          '<th style="border:1px solid '+esc(aColor)+';padding:5px">Rate</th>'+
+          '<th style="border:1px solid '+esc(aColor)+';padding:5px">Amount</th></tr>'+
+          '<tr><td style="border:1px solid #ddd;padding:5px">Sample Product</td>'+
+          '<td style="border:1px solid #ddd;padding:5px;text-align:center">1</td>'+
+          '<td style="border:1px solid #ddd;padding:5px;text-align:right">250,000</td>'+
+          '<td style="border:1px solid #ddd;padding:5px;text-align:right">250,000</td></tr></table>'+
+        '<div style="text-align:right;margin-top:8px;font-weight:700;color:'+esc(hColor)+'">Total: RS. 250,000</div>'+
+        (footer?'<div style="margin-top:10px;font-size:9px;color:#666;border-top:1px solid #eee;padding-top:6px">'+esc(footer)+'</div>':'')+
+      '</div>'+
+    '</div>'+
+    '<div style="font-size:11px;color:var(--ink-3);text-align:center;margin-top:6px">Live preview — this is how your '+esc(title||'document')+' will look</div>';
+}
+
+/* Print ke liye - document ka design nikaalo (master ya own) */
+function getDocDesign(type){
+  var dd = (DB.company && DB.company.docDesigns) || {};
+  var master = dd.master || {};
+  var d = dd[type];
+  if(!d || d.useMaster !== false) return master;  // master use karo
+  return d;  // apna design
+}
+
+/* Client-admin verify - setting kholne se pehle (username + password) */
+function requireAdminAuth(title, onSuccess){
+  modal(title,
+    '<div style="font-size:13px;color:var(--ink-2);line-height:1.7;margin-bottom:16px">'+
+      'These settings are protected. Enter the administrator username and password to open them.</div>'+
+    '<div class="field"><label>Administrator username</label>'+
+      '<input id="authUser" type="text" autocomplete="off"></div>'+
+    '<div class="field" style="margin-top:12px"><label>Password</label>'+
+      '<input id="authPass" type="password" autocomplete="off"></div>'+
+    '<div id="authErr" style="color:var(--red);font-size:12px;margin-top:8px"></div>',
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'},
+     {t:'Open settings',cls:'',f:'checkAdminAuth()'}], true);
+  window._authCallback = onSuccess;
+  setTimeout(function(){ var f=$('authUser'); if(f) f.focus();
+    var pf=$('authPass'); if(pf) pf.onkeydown=function(e){ if(e.key==='Enter') checkAdminAuth(); }; }, 100);
+}
+function checkAdminAuth(){
+  var u = $('authUser') ? $('authUser').value.trim().toLowerCase() : '';
+  var p = $('authPass') ? $('authPass').value : '';
+  var err = $('authErr');
+  // Client-admin user dhoondo (role admin)
+  var adminUser = (DB.users||[]).find(function(x){ return x.role === 'admin' && x.user.toLowerCase() === u; });
+  // Ya current logged-in user agar admin hai
+  if(!adminUser && ME && ME.role === 'admin' && ME.user.toLowerCase() === u){ adminUser = ME; }
+  if(!adminUser){ if(err) err.textContent = 'No administrator found with that username.'; return; }
+  // password verify - local hash ya cloud (ME ke through)
+  var ok = false;
+  if(adminUser.hash && adminUser.salt){
+    ok = hashPw(p, adminUser.salt) === adminUser.hash;
+  } else if(ME && ME.user.toLowerCase() === u){
+    // cloud admin - remember se ya session (best effort)
+    try { ok = (atob(localStorage.getItem('rememberPass')||'') === p); } catch(e){}
+    if(!ok && window._loginPass) ok = (window._loginPass === p);
+  }
+  if(!ok){ if(err) err.textContent = 'Wrong password.'; return; }
+  // success
+  closeModal();
+  if(typeof window._authCallback === 'function') window._authCallback();
+  window._authCallback = null;
+}
+
+/* Payment tracking - Mark paid/unpaid */
+/* Credit/Debit note - document type change */
+function docTypeChange(){
+  var type = $('fType') ? $('fType').value : '';
+  var refField = $('fRef');
+  var isNote = (type === 'Credit Note' || type === 'Debit Note');
+  var isQuote = (type === 'Quotation');
+  // Reason field - sirf credit/debit note par
+  if($('reasonField')) $('reasonField').style.display = isNote ? 'block' : 'none';
+  if(!isNote && $('reasonRemarksField')) $('reasonRemarksField').style.display = 'none';
+  // Quotation - FBR submit chhupao (sirf rate offer, FBR ko nahi jata)
+  var fbrBtns = document.querySelectorAll('[onclick*="sendToFbr"],[onclick*="submitInvoice"]');
+  // Quote note dikhao
+  var qn = $('quoteNote');
+  if(isQuote && !qn){
+    var typeBox = $('fType') ? $('fType').closest('.field') : null;
+    if(typeBox){
+      qn = document.createElement('div');
+      qn.id = 'quoteNote';
+      qn.style.cssText = 'font-size:11.5px;color:var(--teal);margin-top:4px';
+      qn.innerHTML = 'This is a price offer — it is not sent to FBR. Convert it to an invoice once approved.';
+      typeBox.appendChild(qn);
+    }
+  } else if(qn && !isQuote){ qn.remove(); }
+  if(refField){
+    refField.placeholder = isNote ? 'Original invoice number (required)' : 'For debit / credit note';
+    refField.style.borderColor = isNote ? 'var(--amber)' : '';
+  }
+  // Credit/Debit note par helper - copy from invoice
+  var helper = $('docTypeHelper');
+  if(!helper && isNote){
+    var refBox = refField ? refField.closest('.field') : null;
+    if(refBox){
+      helper = document.createElement('div');
+      helper.id = 'docTypeHelper';
+      helper.style.cssText = 'font-size:11.5px;margin-top:4px';
+      helper.innerHTML = '<a href="#" onclick="copyFromInvoice();return false" style="color:var(--teal)">Copy items from an existing invoice →</a>';
+      refBox.appendChild(helper);
+    }
+  } else if(helper && !isNote){
+    helper.remove();
+  }
+}
+function reasonChange(){
+  var r = $('fReason') ? $('fReason').value : '';
+  if($('reasonRemarksField')) $('reasonRemarksField').style.display = (r === 'Others') ? 'block' : 'none';
+}
+function copyFromInvoice(){
+  var sent = DB.invoices.filter(function(v){ return v.type === 'Sale Invoice'; });
+  if(!sent.length){ toast('No sale invoices to copy from','bad'); return; }
+  var opts = sent.slice().reverse().map(function(v){
+    return '<option value="'+v.id+'">'+esc(v.no)+' — '+esc(v.buyer.name)+' — '+money(v.total)+'</option>';
+  }).join('');
+  modal('Copy from invoice',
+    '<div style="font-size:13px;color:var(--ink-2);margin-bottom:14px">Pick the original invoice. Its buyer and items will be copied into this note.</div>'+
+    '<div class="field"><label>Original invoice</label><select id="copyInvSel">'+opts+'</select></div>',
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'},{t:'Copy',cls:'',f:'doCopyInvoice()'}]);
+}
+function doCopyInvoice(){
+  var iid = $('copyInvSel') ? $('copyInvSel').value : '';
+  var src = DB.invoices.find(function(x){ return x.id === iid; });
+  if(!src){ closeModal(); return; }
+  // buyer set
+  if($('fBuyer') && src.buyerId){ $('fBuyer').value = src.buyerId; if(typeof pickBuyer==='function') pickBuyer(); }
+  // ref = original number
+  if($('fRef')) $('fRef').value = src.no;
+  // lines copy
+  $('lineRows').innerHTML = '';
+  src.lines.forEach(function(l){ addLine(l); });
+  if(typeof calc === 'function') calc();
+  closeModal();
+  toast('Copied from invoice ' + src.no + '. Adjust quantities as needed.','good');
+}
+
+/* Quotation - convert to invoice */
+/* Delivery Challan - goods delivery document (no prices) */
+/* Recurring - explain + set up auto-repeat */
+function duplicateInvoice(id){
+  var src = DB.invoices.find(function(x){ return x.id === id; });
+  if(!src) return;
+  modal('Recurring invoice — ' + esc(src.no),
+    '<div style="background:#EDFBF3;border:1px solid #A7E5C4;border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12.5px;color:#1B7A4B;line-height:1.6">'+
+      '<b>What is a recurring invoice?</b><br>'+
+      'When you bill the same customer the same amount every month — like a copier rental or maintenance contract — '+
+      'a recurring invoice saves you re-typing it. Make one copy now, or set it to repeat automatically.</div>'+
+    '<div style="font-size:13px;color:var(--ink-2);margin-bottom:14px">'+
+      'Invoice: <b>'+esc(src.no)+'</b> · '+esc(src.buyer.name)+' · RS. '+money(src.total)+'</div>'+
+    '<div style="display:flex;flex-direction:column;gap:10px">'+
+      '<button class="btn" onclick="doRecurCopy(\''+id+'\')" style="justify-content:flex-start;padding:14px 16px">'+
+        '<b>Make one copy now</b> — a new invoice with today&rsquo;s date, ready to edit and submit</button>'+
+      '<button class="btn ghost" onclick="doRecurAuto(\''+id+'\')" style="justify-content:flex-start;padding:14px 16px">'+
+        '<b>Repeat every month automatically</b> — the software creates it on the 1st of each month</button>'+
+    '</div>',
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'}], true);
+}
+function doRecurAuto(id){
+  var src = DB.invoices.find(function(x){ return x.id === id; });
+  if(!src) return;
+  src.recurring = true;
+  save(); closeModal(); if(typeof drawReg==='function') drawReg();
+  toast('This invoice will now repeat automatically each month','good');
+  logIt('invoice','Set to recurring monthly', src.no);
+}
+function doRecurCopy(id){ closeModal(); _makeRecurCopy(id); }
+function _makeRecurCopy(id){
+  var src = DB.invoices.find(function(x){ return x.id === id; });
+  if(!src) return;
+  var copy = JSON.parse(JSON.stringify(src));
+  copy.id = uid();
+  copy.no = nextNo();
+  copy.date = today();
+  DB.company.next = (DB.company.next || 1) + 1;
+  copy.fbr = { status:'pending', irn:'', qr:'', msg:'' };
+  copy.paid = false; copy.paidDate = ''; copy.paidNote = '';
+  copy.recurring = false;
+  copy.type = (src.type === 'Quotation') ? 'Sale Invoice' : src.type;
+  DB.invoices.push(copy);
+  save(); if(typeof drawReg==='function') drawReg();
+  logIt('invoice','Invoice copied', src.no + ' → ' + copy.no);
+  toast('Copy created: ' + copy.no + ' — edit or submit it to FBR','good');
+}
+/* Auto-run recurring - boot par check (monthly) */
+function runRecurring(){
+  var today_str = today();
+  var thisMonth = today_str.slice(0,7);  // YYYY-MM
+  (DB.invoices||[]).slice().forEach(function(src){
+    if(!src.recurring) return;
+    // is mahine already copy bani?
+    var made = (DB.invoices||[]).some(function(v){
+      return v.recurredFrom === src.id && (v.date||'').slice(0,7) === thisMonth;
+    });
+    if(made) return;
+    // 1st ya baad - copy banao
+    var copy = JSON.parse(JSON.stringify(src));
+    copy.id = uid(); copy.no = nextNo(); copy.date = today_str;
+    DB.company.next = (DB.company.next || 1) + 1;
+    copy.fbr = { status:'pending', irn:'', qr:'', msg:'' };
+    copy.paid = false; copy.recurring = false; copy.recurredFrom = src.id;
+    DB.invoices.push(copy);
+  });
+  save();
+}
+
+function printChallan(id){
+  var v = DB.invoices.find(function(x){ return x.id === id; });
+  if(!v) return;
+  var c = DB.company;
+  var lines = v.lines.map(function(l,i){
+    return '<tr><td style="text-align:center">'+(i+1)+'</td><td>'+esc(l.desc)+'</td>'+
+      '<td style="text-align:center">'+esc(l.hs||'')+'</td>'+
+      '<td style="text-align:center">'+money(l.qty)+'</td>'+
+      '<td style="text-align:center">'+esc(l.unit||'')+'</td></tr>';
+  }).join('');
+  var w = window.open('', '_blank');
+  w.document.write('<html><head><title>Delivery Challan - '+esc(v.no)+'</title>'+
+    '<style>@page{size:A4;margin:15mm}body{font-family:Arial;color:#1a2332}'+
+    '.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1C2E4A;padding-bottom:12px}'+
+    'h1{font-size:20px;color:#1C2E4A}.title{font-size:22px;font-weight:700;text-align:center;margin:16px 0}'+
+    'table{width:100%;border-collapse:collapse;margin-top:14px}th,td{border:1px solid #999;padding:8px;font-size:12px}'+
+    'th{background:#f0f4f8}.meta{margin:14px 0;font-size:13px;line-height:1.8}'+
+    '.sign{display:flex;justify-content:space-between;margin-top:60px}.sb{width:40%;border-top:1px solid #333;padding-top:6px;font-size:12px;text-align:center}'+
+    '.veh{margin-top:20px;font-size:13px}</style></head><body>'+
+    '<div class="hd"><div><h1>'+esc(c.name||'')+'</h1>'+
+      (c.addr?'<div style="font-size:11px;color:#555">'+esc(c.addr)+'</div>':'')+
+      (c.phone?'<div style="font-size:11px;color:#555">Phone: '+esc(c.phone)+'</div>':'')+'</div>'+
+      '<div style="text-align:right;font-size:12px">Challan #: '+esc(v.no)+'<br>Date: '+dmy(v.date)+'</div></div>'+
+    '<div class="title">DELIVERY CHALLAN</div>'+
+    '<div class="meta"><b>Deliver to:</b> '+esc(v.buyer.name)+
+      (v.buyer.addr?'<br>'+esc(v.buyer.addr):'')+
+      (v.buyer.prov?'<br>'+esc(v.buyer.prov):'')+'</div>'+
+    '<table><thead><tr><th style="width:8%">SR</th><th>Description of Goods</th><th style="width:18%">HS Code</th>'+
+      '<th style="width:12%">Quantity</th><th style="width:18%">Unit</th></tr></thead><tbody>'+lines+'</tbody></table>'+
+    '<div class="veh"><b>Vehicle No:</b> _________________ &nbsp;&nbsp; <b>Driver:</b> _________________</div>'+
+    '<div class="sign"><div class="sb">Delivered by<br>('+esc(c.name||'')+')</div>'+
+      '<div class="sb">Received by<br>(with stamp &amp; sign)</div></div>'+
+    '<div style="margin-top:20px;font-size:10px;color:#888;text-align:center">This is a delivery challan, not a tax invoice. Goods received in good condition.</div>'+
+    '</body></html>');
+  w.document.close();
+  setTimeout(function(){ w.print(); }, 300);
+}
+
+function convertQuote(id){
+  var q = DB.invoices.find(function(x){ return x.id === id; });
+  if(!q || q.type !== 'Quotation') return;
+  if(!confirm('Convert quotation ' + q.no + ' to a sale invoice? A new invoice number will be given.')) return;
+  q.type = 'Sale Invoice';
+  q.no = nextNo();
+  q.date = today();
+  DB.company.next = (DB.company.next || 1) + 1;
+  q.fbr = { status:'pending', irn:'', qr:'', msg:'' };
+  save(); if(typeof drawReg==='function') drawReg();
+  logIt('invoice','Quotation converted to invoice', q.no);
+  toast('Converted to invoice ' + q.no + ' — now submit it to FBR','good');
+}
+
+function markPaid(id){
+  var v = DB.invoices.find(function(x){ return x.id === id; });
+  if(!v) return;
+  modal('Mark as paid — ' + esc(v.no),
+    '<div style="font-size:13px;color:var(--ink-2);line-height:1.7;margin-bottom:14px">'+
+      'Amount: <b>RS. ' + money(v.total) + '</b> · Buyer: ' + esc(v.buyer.name) + '</div>'+
+    '<div class="field"><label>Payment date</label><input id="payDate" type="date" value="'+today()+'"></div>'+
+    '<div class="field" style="margin-top:12px"><label>Payment method / note</label>'+
+      '<input id="payNote" type="text" placeholder="e.g. Cash, Bank transfer, Cheque #123"></div>',
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'},
+     {t:'Mark as paid',cls:'',f:'savePaid(\''+id+'\')'}]);
+}
+function savePaid(id){
+  var v = DB.invoices.find(function(x){ return x.id === id; });
+  if(!v) return;
+  v.paid = true;
+  v.paidDate = $('payDate') ? $('payDate').value : today();
+  v.paidNote = $('payNote') ? $('payNote').value.trim() : '';
+  save(); closeModal(); if(typeof drawReg==='function') drawReg();
+  logIt('invoice','Marked as paid', v.no + ' · RS. ' + money(v.total));
+  toast('Invoice ' + v.no + ' marked as paid','good');
+}
+function markUnpaid(id){
+  var v = DB.invoices.find(function(x){ return x.id === id; });
+  if(!v) return;
+  v.paid = false; v.paidDate = ''; v.paidNote = '';
+  save(); if(typeof drawReg==='function') drawReg();
+  toast('Marked as unpaid');
+}
+
 function commercialMenu(id){
   modal('Commercial Invoice',
     '<div style="font-size:13px;color:var(--ink-2);line-height:1.7;margin-bottom:18px">'+
@@ -2183,12 +2827,22 @@ function printInvoice(id){
       '</div>';
   };
 
-  $('printArea').innerHTML =
-  '<div class="doc">'+
+  // Document design (master ya per-document)
+  var dtype = (v.type==='Quotation')?'quotation':(v.type==='Credit Note'||v.type==='Debit Note')?'creditnote':'invoice';
+  var dsgn = (typeof getDocDesign==='function') ? getDocDesign(dtype) : {};
+  var dLogo = dsgn.logo || c.logo || '';
+  var dTitle = dsgn.title || (v.type==='Quotation'?'QUOTATION':(v.type==='Credit Note'?'CREDIT NOTE':(v.type==='Debit Note'?'DEBIT NOTE':'SALES TAX INVOICE')));
+  var dHeaderColor = dsgn.headerColor || '';
+  var dFooter = dsgn.footer || (v.terms||'');
+  window._docHeaderColor = dHeaderColor;
+  window._docFooter = dFooter;
 
-    '<div class="d-top">'+
-      '<div>'+ (c.logo?'<img class="d-logo" src="'+c.logo+'">':'') +'</div>'+
-      '<div class="d-title">SALES TAX INVOICE</div>'+
+  $('printArea').innerHTML =
+  '<div class="doc"'+(dHeaderColor?' style="--doc-hd:'+esc(dHeaderColor)+'"':'')+'>'+
+
+    '<div class="d-top"'+(dHeaderColor?' style="border-bottom-color:'+esc(dHeaderColor)+'"':'')+'>'+
+      '<div>'+ (dLogo?'<img class="d-logo" src="'+dLogo+'">':'') +'</div>'+
+      '<div class="d-title"'+(dHeaderColor?' style="color:'+esc(dHeaderColor)+'"':'')+'>'+esc(dTitle)+'</div>'+
       (c.fbrlogo
         ? '<img class="d-fbr-img" src="'+c.fbrlogo+'">'
         : '<div class="d-fbr">'+
@@ -2989,6 +3643,8 @@ function cloudLogin(bridgeUrl, u, p, err){
           if(d.features && typeof d.features === 'object'){
             DB.company.features = d.features;
           }
+          // Plan info (client ko pata - plan, complementary, expiry)
+          if(d.planInfo){ DB.company.planInfo = d.planInfo; }
           // Admin ki company detail auto-fill (agar client ke paas nahi)
           if(d.companyDetail){
             var cd = d.companyDetail;
@@ -3281,6 +3937,7 @@ function openUser(id){
         '<option value="1"'+(u.active!==false?' selected':'')+'>Active</option>'+
         '<option value="0"'+(u.active===false?' selected':'')+'>Switched off</option></select></div>'+
     '</div>'+
+    userFeaturesHtml(u)+
     (id ? '' :
     '<div class="grid g2" style="margin-top:14px">'+
       '<div class="field"><label>Starting password <span class="req">*</span></label>'+
@@ -3291,6 +3948,40 @@ function openUser(id){
      {t:'Save user',cls:'',f:'saveUser('+(id?"'"+id+"'":'null')+')'}]);
   roleNote();
 }
+/* Per-user features - client-admin apne user ko de (company ke features me se) */
+function userFeaturesHtml(u){
+  // company ke paas jo features hain (admin ne diye)
+  var companyFeats = DB.company.features || {};
+  // yeh features user ko de sakte (jo company ke paas ON hain)
+  var giveable = FEATURE_LIST.filter(function(f){
+    return companyFeats[f.key] !== false;  // company ke paas hai
+  });
+  if(!giveable.length) return '';
+  var uFeats = u.features || null;  // null = sab (default)
+  var rows = giveable.map(function(f){
+    var on = !uFeats || uFeats[f.key] !== false;  // default sab on
+    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px;cursor:pointer">'+
+      '<input type="checkbox" data-ufeat="'+f.key+'" '+(on?'checked':'')+' style="width:auto;margin:0"> '+esc(f.label)+'</label>';
+  }).join('');
+  return '<div style="margin-top:16px;border-top:1px solid var(--line-soft);padding-top:14px">'+
+    '<div style="font-weight:600;font-size:13px;color:var(--ink);margin-bottom:4px">What this user can access</div>'+
+    '<div class="help" style="margin-bottom:10px">Turn features on or off for this specific user. They will only see what is ticked. (You can only give features your own company has.)</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;max-height:180px;overflow:auto">'+rows+'</div></div>';
+}
+
+/* Feature list (key -> label) - shared */
+var FEATURE_LIST = [
+  {key:'reports',label:'Reports'},{key:'returnSummary',label:'Tax Return Summary'},
+  {key:'clients',label:'Buyers'},{key:'items',label:'Products'},{key:'hs',label:'HS Code Search'},
+  {key:'autoscenario',label:'Auto Scenarios'},{key:'downloadAll',label:'Download All'},
+  {key:'bulkImport',label:'Bulk Import'},{key:'emailInvoice',label:'Email Invoices'},
+  {key:'fbrProof',label:'FBR Tax Proof'},{key:'autoTax',label:'Automatic Tax Rate'},
+  {key:'commercial',label:'Commercial Invoice'},{key:'quotation',label:'Quotation'},
+  {key:'creditnote',label:'Credit/Debit Notes'},{key:'challan',label:'Delivery Challan'},
+  {key:'recurring',label:'Recurring Invoices'},{key:'payment',label:'Payment Tracking'},
+  {key:'statement',label:'Buyer Statements'},{key:'ownEmail',label:'Use own email address'},{key:'data',label:'Backup & Restore'}
+];
+
 function roleNote(){ var r = $('muRole').value; $('muRoleNote').textContent = ROLES[r].desc; }
 function saveUser(id){
   if(!needAdmin()) return;
@@ -3298,6 +3989,13 @@ function saveUser(id){
   if(!name) return toast('Full name is required','bad');
   var active = $('muActive').value === '1';
   var role = $('muRole').value;
+  // per-user features collect
+  var uFeatures = null;
+  var featInputs = document.querySelectorAll('[data-ufeat]');
+  if(featInputs.length){
+    uFeatures = {};
+    featInputs.forEach(function(inp){ uFeatures[inp.getAttribute('data-ufeat')] = inp.checked; });
+  }
 
   if(id){
     var u = DB.users.find(function(x){return x.id===id;});
@@ -3307,6 +4005,7 @@ function saveUser(id){
       return x.role==='admin' && x.active; }).length <= 1)
       return toast('At least one active administrator is required','bad');
     u.name = name; u.role = role; u.active = active;
+    if(uFeatures) u.features = uFeatures;
     logIt('setup','User updated', u.user + ' → ' + ROLES[role].label + (active?'':' (off)'));
   } else {
     var un = $('muUser').value.trim().toLowerCase();
@@ -3319,7 +4018,7 @@ function saveUser(id){
     if(pw.length < 6) return toast('Starting password needs 6 characters','bad');
     var salt = newSalt();
     DB.users.push({ id:uid(), user:un, name:name, role:role, salt:salt, hash:hashPw(pw,salt),
-      active:active, mustChange:true, created:new Date().toISOString(), last:'', fails:0, lockUntil:0 });
+      active:active, mustChange:true, features:uFeatures, created:new Date().toISOString(), last:'', fails:0, lockUntil:0 });
     logIt('setup','User added', un + ' · ' + ROLES[role].label);
   }
   _dbSave(); closeModal(); drawUsers(); toast('User saved','good');
@@ -3451,8 +4150,14 @@ var FEATURES = {
 function feat(key){
   var f = FEATURES[key];
   if(f && f.core) return true;
-  var flags = (DB.company && DB.company.features) || {};
-  return flags[key] !== false;   // default ON
+  // Company level (admin ne diya?)
+  var companyFlags = (DB.company && DB.company.features) || {};
+  if(companyFlags[key] === false) return false;  // company ke paas nahi
+  // User level (client-admin ne is user ko diya?)
+  if(ME && ME.features && ME.role !== 'admin'){  // admin ko sab (jo company ke paas)
+    if(ME.features[key] === false) return false;  // user ko nahi diya
+  }
+  return true;   // default ON
 }
 
 function applyRole(){
@@ -4155,6 +4860,8 @@ function fbrPayload(inv){
     buyerAddress: inv.buyer.addr || '',
     buyerRegistrationType: diBuyerType(inv.buyer.reg),
     invoiceRefNo: inv.ref || '',
+    reason: inv.reason || '',
+    reasonRemarks: inv.reasonRemarks || '',
     items: (inv.lines || []).map(function(l){
       var x = l.fbrx || {};
       /* Third Schedule goods are taxed on the retail price, not on what you
@@ -5083,26 +5790,26 @@ var _saveCoHs = saveCompany;
 saveCompany = function(){
   if($('coHs')) DB.company.defaultHs = $('coHs').value.trim();
   // Invoice settings save
-  // Email SMTP settings save (password blank = keep old)
-  DB.company.smtp = DB.company.smtp || {};
-  if($('coSmtpUser')) DB.company.smtp.user = $('coSmtpUser').value.trim();
-  if($('coSmtpHost')) DB.company.smtp.host = $('coSmtpHost').value.trim();
-  if($('coSmtpPort')) DB.company.smtp.port = parseInt($('coSmtpPort').value) || 587;
-  if($('coSmtpPass') && $('coSmtpPass').value){ DB.company.smtp.pass = $('coSmtpPass').value; }
-
-  // Commercial invoice - password lock check
-  var ci = DB.company.commercial || {};
-  if(ci.lockHash){
-    // locked - password chahiye badalne ke liye
-    var entered = $('coCiLock') ? $('coCiLock').value : '';
-    if(entered && hashPw(entered, ci.lockSalt) === ci.lockHash){
-      // sahi password - ab settings badal sakte, lock hata do agar khali
-    } else if($('coCiOn') && ((!!$('coCiOn').checked) !== (!!ci.on) || ($('coCiTitle')&&$('coCiTitle').value!==ci.title))){
-      toast('Commercial settings are locked. Enter the correct password to change them.','bad');
-      return;
-    }
+  // Email SMTP settings save - user (own) ya company
+  if(window._emailTarget === 'user' && ME){
+    ME.smtp = ME.smtp || {};
+    if($('coSmtpUser')) ME.smtp.user = $('coSmtpUser').value.trim();
+    if($('coSmtpHost')) ME.smtp.host = $('coSmtpHost').value.trim();
+    if($('coSmtpPort')) ME.smtp.port = parseInt($('coSmtpPort').value) || 587;
+    if($('coSmtpPass') && $('coSmtpPass').value){ ME.smtp.pass = $('coSmtpPass').value; }
+    // ME.smtp ko DB.users mein bhi update
+    var meUser = (DB.users||[]).find(function(x){ return x.id === ME.id; });
+    if(meUser) meUser.smtp = ME.smtp;
+  } else {
+    DB.company.smtp = DB.company.smtp || {};
+    if($('coSmtpUser')) DB.company.smtp.user = $('coSmtpUser').value.trim();
+    if($('coSmtpHost')) DB.company.smtp.host = $('coSmtpHost').value.trim();
+    if($('coSmtpPort')) DB.company.smtp.port = parseInt($('coSmtpPort').value) || 587;
+    if($('coSmtpPass') && $('coSmtpPass').value){ DB.company.smtp.pass = $('coSmtpPass').value; }
   }
-  var newLock = $('coCiLock') ? $('coCiLock').value.trim() : '';
+
+  // Commercial settings - ab client-admin verify se protect (setting kholne par hota hai)
+  var ci = DB.company.commercial || {};
   DB.company.commercial = {
     on: $('coCiOn') ? $('coCiOn').checked : false,
     both: $('coCiBoth') ? $('coCiBoth').checked : false,
@@ -5110,14 +5817,7 @@ saveCompany = function(){
     showHs: $('coCiShowHs') ? $('coCiShowHs').checked : false,
     title: $('coCiTitle') ? $('coCiTitle').value.trim() : '',
     footer: $('coCiFooter') ? $('coCiFooter').value.trim() : '',
-    lockHash: ci.lockHash || '', lockSalt: ci.lockSalt || ''
   };
-  if(newLock && !ci.lockHash){
-    // naya lock set
-    var slt = newSalt();
-    DB.company.commercial.lockSalt = slt;
-    DB.company.commercial.lockHash = hashPw(newLock, slt);
-  }
   DB.company.invSettings = {
     autoRate: $('coAutoRate') ? $('coAutoRate').checked : false,
     fullTariff: $('coFullTariff') ? $('coFullTariff').checked : false,
@@ -6369,6 +7069,62 @@ function drawDash(){
   $('cntInv').textContent = DB.invoices.length || '';
   $('cntCli').textContent = DB.clients.length || '';
   $('cntItm').textContent = DB.items.length || '';
+
+  // Plan info + payment due (admin only) + encryption note
+  drawDashNotices();
+}
+
+/* Dashboard notices - plan, payment due (admin), encryption/backup */
+function drawDashNotices(){
+  var host = $('dashNotices');
+  if(!host){
+    var dash = document.getElementById('pg-dash');
+    if(!dash) return;
+    host = document.createElement('div');
+    host.id = 'dashNotices';
+    host.style.cssText = 'margin-top:18px;display:flex;flex-direction:column;gap:12px';
+    dash.appendChild(host);
+  }
+  var html = '';
+  var pi = (DB.company && DB.company.planInfo) || {};
+  var isAdmin = ME && ME.role === 'admin';
+
+  // 1. Plan info (client ko pata - plan + complementary/paid)
+  if(pi.name || pi.complementary){
+    var planTxt = pi.complementary ?
+      '<span style="color:#059669;font-weight:600">Complementary</span> — you are on a complementary plan (no monthly charges).' :
+      (pi.name ? 'Your plan: <b>' + esc(pi.name) + '</b>' : '');
+    if(pi.complementaryFeatures && pi.complementaryFeatures.length){
+      planTxt += ' <span style="color:#059669">+ ' + pi.complementaryFeatures.length + ' complementary feature(s)</span>';
+    }
+    if(planTxt){
+      html += '<div style="background:#F0F7FF;border:1px solid #C7DBF5;border-radius:8px;padding:12px 16px;font-size:12.5px;color:#1B4F9C">'+
+        '&#127775; ' + planTxt + '</div>';
+    }
+  }
+
+  // 2. Payment due notification - SIRF ADMIN ko
+  if(isAdmin && pi.expiry){
+    try {
+      var exp = new Date(pi.expiry); var t0 = new Date(); t0.setHours(0,0,0,0);
+      var days = Math.ceil((exp - t0) / 86400000);
+      if(days < 0){
+        html += '<div style="background:#FEF2F2;border:1px solid #FBCFCF;border-radius:8px;padding:12px 16px;font-size:12.5px;color:#DC2626">'+
+          '&#9888; <b>Your subscription has expired.</b> Please contact Paragon Business Solution to renew.</div>';
+      } else if(days <= 7){
+        html += '<div style="background:#FEF6EC;border:1px solid #F5D9A8;border-radius:8px;padding:12px 16px;font-size:12.5px;color:#8A6420">'+
+          '&#9888; <b>Your subscription expires in ' + days + ' day(s)</b> (on ' + esc(pi.expiry) + '). Please arrange renewal to avoid interruption.</div>';
+      }
+    } catch(e){}
+  }
+
+  // 3. Encryption + backup note (sab ko)
+  html += '<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:12px 16px;font-size:12px;color:#55606d;line-height:1.6">'+
+    '&#128274; <b>Your data is private and secure.</b> Your business data is encrypted and cannot be viewed by any administrator, including Paragon Business Solution — only you and your authorised users can access it. '+
+    'We keep automatic backups on our secure servers; however, unexpected events can occur, so please keep your own backup regularly using the Backup option. '+
+    'Paragon Business Solution is not responsible for any loss of data.</div>';
+
+  host.innerHTML = html;
 }
 
 /* ---------- reports ---------- */
@@ -6623,6 +7379,76 @@ function rpExport(){
     tblInvoices(), tblLines(), tblBuyers(), tblProducts(), tblSummary()
   ]), 'report-' + (from||'all') + '-to-' + (to||'now') + '.xlsx');
   toast('Report exported','good');
+}
+
+/* ===== FBR VERIFICATION PAGE ===== */
+function runVerify(){
+  var ntn = $('vfNtn') ? $('vfNtn').value.trim() : '';
+  var out = $('vfResult');
+  if(!ntn){ out.innerHTML = '<div style="color:var(--red);font-size:13px">Enter an NTN or CNIC first.</div>'; return; }
+  var bridgeUp = (DB.fbr && DB.fbr.url) || window._autoBridge || window._cloudSession;
+  if(!bridgeUp){ out.innerHTML = '<div style="color:var(--red);font-size:13px">Not connected to FBR. Sign in again.</div>'; return; }
+  out.innerHTML = '<div style="color:var(--ink-2);font-size:13px">Checking with FBR…</div>';
+  callBridge({ action:'regtype', ntn: ntnClean(ntn) })
+    .then(function(d){
+      if(!d || !d.ok) throw new Error((d && d.msg) || 'FBR did not answer');
+      var t = String(d.type || '').toLowerCase();
+      var isReg = t.indexOf('unreg') === -1 && t.indexOf('reg') > -1;
+      var isActive = d.active ? /^active/i.test(d.active) : null;
+      function card(label, value, color, sub){
+        return '<div style="background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px;flex:1;min-width:180px">'+
+          '<div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">'+esc(label)+'</div>'+
+          '<div style="font-size:16px;font-weight:700;color:'+color+'">'+esc(value)+'</div>'+
+          (sub?'<div style="font-size:11px;color:var(--ink-3);margin-top:3px">'+esc(sub)+'</div>':'')+'</div>';
+      }
+      var html = '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">'+
+        card('Name', d.name || 'Not provided by FBR', 'var(--ink)', '')+
+        card('NTN / CNIC', d.ntn || ntn, 'var(--ink)', '')+
+      '</div>'+
+      '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">'+
+        card('Sales Tax Registration', d.type || 'Unknown',
+             isReg ? 'var(--green)' : 'var(--amber)',
+             isReg ? 'Registered for sales tax' : 'Not registered for sales tax')+
+        card('Active Taxpayer (ATL)',
+             d.active || 'Not available',
+             isActive === null ? 'var(--ink-3)' : (isActive ? 'var(--green)' : 'var(--red)'),
+             isActive === null ? '' : (isActive ? 'On the Active Taxpayer List' : 'Inactive — not on ATL'))+
+      '</div>';
+      // Business nature / activity (Importer, GOS, Exporter, etc.)
+      if(d.businessNature || d.businessActivity || d.registrationStatus){
+        html += '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">'+
+          (d.businessNature ? card('Business Nature', d.businessNature, 'var(--ink)', 'e.g. Importer, Exporter') : '')+
+          (d.businessActivity ? card('Principal Activity', d.businessActivity, 'var(--ink)', '') : '')+
+          (d.registrationStatus ? card('Registration Status', d.registrationStatus, 'var(--ink)', '') : '')+
+        '</div>';
+      }
+      if(d.address || d.province){
+        html += '<div style="background:#F8FAFC;border:1px solid var(--line-soft);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--ink-2);line-height:1.7">'+
+          (d.province?'<b>Province:</b> '+esc(d.province)+'<br>':'')+
+          (d.address?'<b>Address:</b> '+esc(d.address):'')+'</div>';
+      }
+      // FBR ne jo aur fields diye (raw) - wo bhi dikhao
+      if(d.raw && typeof d.raw === 'object'){
+        var shown = ['REGISTRATION_NO','REGISTRATION_TYPE','BUSINESS_NAME','NAME','TAXPAYER_NAME','ADDRESS','BUSINESS_ADDRESS','PROVINCE','PROVINCE_NAME','BUSINESS_NATURE','NATURE_OF_BUSINESS','BUSINESS_ACTIVITY','REGISTRATION_STATUS','STATUS','PRINCIPAL_ACTIVITY','ACTIVITY','SECTOR'];
+        var extra = [];
+        Object.keys(d.raw).forEach(function(k){
+          if(shown.indexOf(k) === -1 && d.raw[k] && String(d.raw[k]).trim() && String(d.raw[k]) !== 'null'){
+            var label = k.replace(/_/g,' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+            extra.push('<b>'+esc(label)+':</b> '+esc(String(d.raw[k])));
+          }
+        });
+        if(extra.length){
+          html += '<div style="background:#F8FAFC;border:1px solid var(--line-soft);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--ink-2);line-height:1.9;margin-top:12px">'+
+            '<div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;margin-bottom:6px">Other details from FBR</div>'+
+            extra.join('<br>')+'</div>';
+        }
+      }
+      html += '<div style="margin-top:14px;font-size:11.5px;color:var(--ink-3);line-height:1.6">'+
+        'Verified against FBR at '+dmy(today())+'. FBR only shares the status information above — full profile details are available on IRIS. '+
+        'Always confirm current status with FBR before relying on it.</div>';
+      out.innerHTML = html;
+    })
+    .catch(function(e){ out.innerHTML = '<div style="color:var(--red);font-size:13px">'+esc(e.message||'Could not verify')+'</div>'; });
 }
 
 /* ---------- check a buyer against FBR ---------- */
@@ -6959,8 +7785,15 @@ function emailSend(id){
 
   var sub = $('emSub').value.trim(), cc = $('emCc').value.trim();
 
-  // Agar SMTP set hai - software se seedha bhejo (client ki apni email se)
-  var sm = DB.company.smtp || {};
+  // Email kaunsa - user ka apna (agar feature mila) ya company ka
+  var sm;
+  var userHasOwn = ME && ME.smtp && ME.smtp.user && ME.smtp.pass && ME.smtp.host &&
+                   (typeof feat==='function' && feat('ownEmail'));
+  if(userHasOwn){
+    sm = ME.smtp;  // user ka apna email
+  } else {
+    sm = DB.company.smtp || {};  // company (client-admin) ka email
+  }
   if(sm.user && sm.pass && sm.host){
     toast('Sending from ' + sm.user + '…');
     callBridge({ action:'sendemail', smtpHost:sm.host, smtpPort:sm.port||587,
@@ -7060,7 +7893,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '15.2',
+  version: '16.8',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
@@ -8681,6 +9514,7 @@ function hsLoadFbr(quiet){
 var _bootTariff = boot;
 boot = function(){
   _bootTariff();
+  try { if(typeof runRecurring==='function') runRecurring(); } catch(e){}
   setTimeout(function(){
     // localStorage se pakka check (DB reset se bhi bache) + ek dafa hi
     var declined = false;
