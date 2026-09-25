@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 16.8 — FBR Digital Invoicing
+   Invoice Manager 17.1 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 16.8 · Verify+Nature · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 17.1 · Feature Map · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -2203,14 +2203,14 @@ function drawReg(){
         (f.status==='failed'&&f.msg?'<div style="font-size:10.5px;color:var(--red)">'+esc(String(f.msg).slice(0,60))+'</div>':'')+
       '</td>'+
       '<td>' + (v.type === 'Quotation' ?
-          '<button class="btn sm" onclick="convertQuote(\''+v.id+'\')" style="background:#059669">→ Invoice</button>' :
-          (v.paid ?
+          (feat('quotation') ? '<button class="btn sm" onclick="convertQuote(\''+v.id+'\')" style="background:#059669">→ Invoice</button>' : '') :
+          (!feat('payment') ? '' : (v.paid ?
             '<span class="pill on" title="Paid on '+esc(v.paidDate||'')+'">Paid</span>' :
-            '<button class="btn sm ghost" onclick="markPaid(\''+v.id+'\')" style="color:#D97706;border-color:#F5D9A8">Mark paid</button>')) + '</td>'+
+            '<button class="btn sm ghost" onclick="markPaid(\''+v.id+'\')" style="color:#D97706;border-color:#F5D9A8">Mark paid</button>'))) + '</td>'+
       '<td><button class="btn sm ghost" onclick="printInvoice(\''+v.id+'\')">Print</button> '+
-      ((DB.company.commercial&&DB.company.commercial.on)?'<button class="btn sm ghost" onclick="commercialMenu(\''+v.id+'\')">Commercial ▾</button> ':'')+
-      '<button class="btn sm ghost" onclick="printChallan(\''+v.id+'\')">Challan</button> '+
-      '<button class="btn sm ghost" onclick="duplicateInvoice(\''+v.id+'\')" title="Make a copy (for recurring/monthly billing)">Duplicate</button> '+
+      ((feat('commercial') && DB.company.commercial&&DB.company.commercial.on)?'<button class="btn sm ghost" onclick="commercialMenu(\''+v.id+'\')">Commercial ▾</button> ':'')+
+      (feat('challan')?'<button class="btn sm ghost" onclick="printChallan(\''+v.id+'\')">Challan</button> ':'')+
+      (feat('recurring')?'<button class="btn sm ghost" onclick="duplicateInvoice(\''+v.id+'\')" title="Make a copy (for recurring/monthly billing)">Duplicate</button> ':'')+
       '<button class="btn sm ghost" onclick="editInvoice(\''+v.id+'\')">Edit</button> '+
       '<button class="btn sm danger" onclick="delInvoice(\''+v.id+'\')">Del</button></td></tr>';
   }).join('') : '<tr><td colspan="9"><div class="empty"><p>No invoices match this view.</p>'+
@@ -3536,14 +3536,14 @@ var ROLES = {
   viewer:  { label:'Viewer',        desc:'Look at and print invoices, change nothing' }
 };
 var PERM = {
-  admin:   ['dash','new','reg','reports','clients','items','hs','company','fbr','autoscenario','data','users','audit',
+  admin:   ['dash','new','reg','reports','clients','items','verify','hs','company','fbr','autoscenario','data','users','audit',
             'invoice.create','invoice.edit','invoice.delete','record.manage','setup.edit',
             'backup.run','users.manage','audit.view'],
-  manager: ['dash','new','reg','reports','clients','items','hs','data',
+  manager: ['dash','new','reg','reports','clients','items','verify','hs','data',
             'invoice.create','invoice.edit','invoice.delete','record.manage','backup.run'],
-  biller:  ['dash','new','reg','clients','items','hs',
+  biller:  ['dash','new','reg','clients','items','verify','hs',
             'invoice.create','invoice.edit','record.manage'],
-  viewer:  ['dash','reg','reports']
+  viewer:  ['dash','reg','reports','verify']
 };
 var ME = null;
 function can(x){ return !!(ME && (PERM[ME.role] || []).indexOf(x) > -1); }
@@ -3631,9 +3631,10 @@ function cloudLogin(bridgeUrl, u, p, err){
       if(d && d.ok){
         // login sahi - session token save (secret ki zaroorat nahi)
         window._cloudSession = d.session || '';
-        DB.fbr = DB.fbr || {};
-        DB.fbr.url = bridgeUrl;
-        DB.fbr.client = d.client || attemptCid;
+        // NAYA CLIENT - purana data (localStorage) saaf karo (data separation)
+        var savedClient = d.client || attemptCid;
+        DB = { company:{}, clients:[], items:[], invoices:[], users:[], sec:{}, audit:[],
+               fbr:{ url:bridgeUrl, client:savedClient, env:'sandbox', scn:'' } };
         loadFromServer(function(){
           ME = { user:d.user, name:d.user, role:'admin' };
           if(!DB.users || !DB.users.length){
@@ -4144,7 +4145,16 @@ var FEATURES = {
   autoTax:     { label:'Automatic Tax Rate',    page:null },
   data:        { label:'Backup & Restore',      page:'data' },
   users:       { label:'User Management',       page:'users' },
-  audit:       { label:'Activity Log',          page:'audit' }
+  audit:       { label:'Activity Log',          page:'audit' },
+  verify:      { label:'FBR Verification',      page:'verify' },
+  commercial:  { label:'Commercial Invoice',    page:null },
+  quotation:   { label:'Quotation',             page:null },
+  creditnote:  { label:'Credit/Debit Notes',    page:null },
+  challan:     { label:'Delivery Challan',       page:null },
+  recurring:   { label:'Recurring Invoices',    page:null },
+  payment:     { label:'Payment Tracking',      page:null },
+  statement:   { label:'Buyer Statements',      page:null },
+  ownEmail:    { label:'Use own email',         page:null }
 };
 /* feature on? (company-level flag; core hamesha on; default on jab tak off na ho) */
 function feat(key){
@@ -7893,7 +7903,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '16.8',
+  version: '17.1',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
