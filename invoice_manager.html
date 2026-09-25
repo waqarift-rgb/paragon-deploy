@@ -6,7 +6,7 @@
 <title>Invoice Manager — FBR Digital Invoicing</title>
 <style>
 /* ============================================================
-   Invoice Manager 17.1 — FBR Digital Invoicing
+   Invoice Manager 17.2 — FBR Digital Invoicing
    A tax invoice is an official document. The interface is built
    to feel like one: ink and paper, hairline rules, a brass seal,
    and figures set in a ledger face.
@@ -487,7 +487,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 17.1 · Feature Map · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 17.2 · Deep Audit · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -1862,6 +1862,7 @@ function printStatement(){
       '<td>'+(v.paid?'Paid':'Pending')+'</td></tr>';
   }).join('');
   var w = window.open('', '_blank');
+  if(!w){ toast('Please allow pop-ups for this site to print, then try again.','bad'); return; }
   w.document.write('<html><head><title>Statement - '+esc(d.client.name)+'</title>'+
     '<style>body{font-family:Arial;max-width:750px;margin:24px auto;padding:0 20px}h1{color:#1C2E4A;font-size:22px}'+
     'table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #ccc;padding:8px;font-size:13px;text-align:left}'+
@@ -2645,6 +2646,7 @@ function printChallan(id){
       '<td style="text-align:center">'+esc(l.unit||'')+'</td></tr>';
   }).join('');
   var w = window.open('', '_blank');
+  if(!w){ toast('Please allow pop-ups for this site to print, then try again.','bad'); return; }
   w.document.write('<html><head><title>Delivery Challan - '+esc(v.no)+'</title>'+
     '<style>@page{size:A4;margin:15mm}body{font-family:Arial;color:#1a2332}'+
     '.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #1C2E4A;padding-bottom:12px}'+
@@ -7218,6 +7220,7 @@ function rpReturnExport(){
 function rpReturnPrint(){
   var el = $('rpReturn'); if(!el) return;
   var w = window.open('', '_blank');
+  if(!w){ toast('Please allow pop-ups for this site to print, then try again.','bad'); return; }
   if(!w){ toast('Allow pop-ups to print','bad'); return; }
   w.document.write('<html><head><title>Sales Tax Return Summary</title>'+
     '<style>body{font-family:Arial,sans-serif;max-width:720px;margin:30px auto;padding:0 20px}'+
@@ -7676,6 +7679,7 @@ function fbrTaxReference(hs, rate, sro, sroItem, saleType){
 }
 function fbrRefPrint(){
   var w = window.open('', '_blank');
+  if(!w){ toast('Please allow pop-ups for this site to print, then try again.','bad'); return; }
   if(!w){ toast('Allow pop-ups to print','bad'); return; }
   w.document.write('<html><head><title>FBR Tax Reference</title>'+
     '<style>body{font-family:Arial,sans-serif;max-width:640px;margin:30px auto;padding:0 20px}</style>'+
@@ -7903,7 +7907,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '17.1',
+  version: '17.2',
   /* paste a data URL here to show a logo instead of the name */
   logo:    ''
 };
