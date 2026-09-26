@@ -580,7 +580,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.20';
+var APP_VERSION = '1.24';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -794,33 +794,54 @@ function doSignin(){
 
   // NAYA PC / phone not connected: user ke apne credentials se KHUD server par join karo
   if((!rec || !sharingOn())){
-    err.textContent = 'Connecting...';
+    err.textContent = 'Connecting\u2026';
     var url = (DB.share && DB.share.url) || DEFAULT_SERVER;
     if(!/\/$/.test(url)) url += '/';
+    // 1) join karo (admin ya koi bhi valid user ke credentials se)
     fetch(joinUrl(url), { method:'POST', headers:{'Content-Type':'text/plain'},
       body: JSON.stringify({ user:u, pass:p }) })
     .then(function(r){ return r.json(); })
     .then(function(j){
-      if(!j || !j.ok) throw new Error((j && j.msg) || 'refused');
+      if(!j || !j.ok) throw new Error((j && j.msg) || 'join-failed');
       if(!DB.share) DB.share = { on:false, url:'', key:'', client:'', pc:'', auto:true, at:'' };
-      DB.share.url = url; DB.share.key = j.key; DB.share.on = true;
+      DB.share.url = url; DB.share.key = j.key; DB.share.on = true; DB.share.auto = true;
       if(!DB.share.pc) DB.share.pc = 'pc-' + Math.random().toString(36).slice(2,7);
       save();
-      // Data sync karo, phir dobara login try karo
-      syncNow(true);
-      setTimeout(function(){
-        var rec2 = DB.users.filter(function(x){ return String(x.email||'').toLowerCase() === u; })[0];
-        if(rec2 && rec2.active && checkPass(rec2, p)){
-          err.textContent = ''; ME = rec2; DB.session = rec2.id;
-          try { if(typeof hrLogin === 'function') hrLogin(u, p); } catch(e){}
-          resumeSession();
-        } else {
-          err.textContent = 'That user name or password is not right.';
-        }
-      }, 2500);
+      err.textContent = 'Loading your data\u2026';
+      // 2) data pull karo aur WAIT karo (promise se) - phir login
+      return bridge({ action:'pull' });
     })
-    .catch(function(){
-      err.textContent = 'That user name or password is not right.';
+    .then(function(d){
+      if(!d || !d.ok) throw new Error((d && d.msg) || 'pull-failed');
+      // pull ka data DB mein daalo (syncNow ka pull tarika - d[p[1]], _at merge)
+      SYNC_KINDS.forEach(function(p){
+        DB[p[0]] = DB[p[0]] || [];
+        var local = DB[p[0]], remote = d[p[1]] || {};
+        var at = {};
+        local.forEach(function(r,i){ if(r && r.id) at[r.id] = i; });
+        Object.keys(remote).forEach(function(id){
+          var them = remote[id];
+          if(!them || typeof them !== 'object') return;
+          var i = at[id];
+          if(i === undefined){ local.push(them); }
+          else if(String(them._at||'') > String(local[i]._at||'')){ local[i] = them; }
+        });
+      });
+      hashOldPasswords && hashOldPasswords();
+      save();
+      // 3) ab login try karo (data aa gaya)
+      var rec2 = (DB.users||[]).filter(function(x){ return String(x.email||'').toLowerCase() === u; })[0];
+      if(rec2 && rec2.active && checkPass(rec2, p)){
+        err.textContent = ''; ME = rec2; DB.session = rec2.id; save();
+        try { if(typeof hrLogin === 'function') hrLogin(u, p); } catch(e){}
+        resumeSession();
+      } else {
+        err.textContent = 'That user name or password is not right.';
+      }
+    })
+    .catch(function(e){
+      // join fail = galat username/password YA server na mila
+      err.textContent = 'That user name or password is not right, or the server could not be reached.';
     });
     return;
   }
@@ -3735,6 +3756,8 @@ function qfNewClient(){
 function qfNewClientSave(){
   var name = $('ncName').value.trim();
   if(!name) return toast('Client ka naam likhein','bad');
+  if(!$('ncWho').value.trim()) return toast('Concern person ka naam zaroori hai','bad');
+  if(!$('ncWa').value.trim()) return toast('Concern person ka phone/number zaroori hai','bad');
   var c = { id:uid(), active:true, name:name, brand:$('ncBrand').value,
             addr:$('ncAddr').value.trim(), who:$('ncWho').value.trim(),
             wa:$('ncWa').value.trim(), phone:$('ncWa').value.trim(),
@@ -3870,7 +3893,7 @@ function openQuote(id){
         ? [{t:'Log a call',cls:'ghost',f:"logCall('"+x.id+"')"},
            {t:'+ Line',cls:'ghost',f:"addQLine('"+x.id+"')"}] : [])
       .concat([{t:'Send',cls:'green',f:"shareQuote('"+x.id+"')"},
-               {t:'Print',cls:'ghost',f:"printQuote('"+x.id+"')"}])
+               {t:'\u2B07 Download',cls:'',f:"downloadQuote('"+x.id+"')"}])
       .concat(qOpen(x) && can('complaint.add')
         ? [{t:'\u22EF',cls:'ghost',f:"quoteActions('"+x.id+"')"}] : [])
       .concat(x.state === 'accepted' && x.type !== 'rental' && can('money')
@@ -3891,6 +3914,29 @@ function quoteActions(id){
      {t:'Cancel it',cls:'danger',f:"markQuote('"+id+"','cancelled')"}]);
 }
 
+/* Quotation line: machine ke features dikhao (Models library se). Nahi to error. */
+function qlShowFeatures(){
+  var name = ($('qlMachine')||{}).value ? $('qlMachine').value.trim() : '';
+  if(!name) return toast('Pehle machine model ka naam likhein','bad');
+  var m = (DB.models||[]).filter(function(x){ return String(x.name||'').toLowerCase() === name.toLowerCase(); })[0];
+  if(!m) return toast('Ye model Models mein nahi hai. Pehle Office \u2192 Models mein add karein.','bad');
+  if(!m.features || !m.features.trim()) return toast('Is machine ke features nahi daale. Pehle Models mein features daalein.','bad');
+  modal(m.name + ' \u2014 Features',
+    '<div class="note">'+esc(m.features).replace(/\n/g,'<br>')+'</div>',
+    [{t:'OK',cls:'',f:"closeModal();"+(_qlReopen||'')}]);
+}
+function qlShowPictures(){
+  var name = ($('qlMachine')||{}).value ? $('qlMachine').value.trim() : '';
+  if(!name) return toast('Pehle machine model ka naam likhein','bad');
+  var m = (DB.models||[]).filter(function(x){ return String(x.name||'').toLowerCase() === name.toLowerCase(); })[0];
+  if(!m) return toast('Ye model Models mein nahi hai. Pehle Office \u2192 Models mein add karein.','bad');
+  if(!m.shots || !m.shots.length) return toast('Is machine ki pictures nahi hain. Pehle Models mein pictures upload karein.','bad');
+  modal(m.name + ' \u2014 Pictures',
+    '<div class="shots">'+m.shots.map(function(s){ return '<img class="shot" src="'+s+'" style="max-width:100%;margin-bottom:8px">'; }).join('')+'</div>',
+    [{t:'OK',cls:'',f:"closeModal();"+(_qlReopen||'')}]);
+}
+var _qlReopen = '';
+
 function addQLine(id, idx){
   var x = byId(DB.quotes, id);
   var rental = x.type === 'rental';
@@ -3898,17 +3944,33 @@ function addQLine(id, idx){
   modal(L ? 'Edit line' : 'Add a line',
     '<div class="field"><label>Description</label>'+
       '<input id="qlDesc" value="'+esc(L?L.desc:'')+'" placeholder="'+(rental
-        ? 'Monthly minimum print without papers' : 'Ricoh MP 3055')+'"></div>'+
-    '<div class="field"><label>Machine</label>'+
-      '<input id="qlMachine" value="'+esc(L&&L.machine&&L.machine!=='\u2014'?L.machine:'')+'" placeholder="Ricoh MP 3055"></div>'+
+        ? 'Monthly minimum print without papers' : 'Ricoh MP 3055')+'" list="qlParts">'+
+      '<datalist id="qlParts">'+
+        (DB.stock||[]).filter(function(s){ return s.active !== false; }).map(function(s){ return '<option value="'+esc(s.name||'')+(s.code?' - '+esc(s.code):'')+'">'; }).join('')+
+      '</datalist>'+
+      '<div class="help">Available parts/items list se chunein, ya khud likhein.</div></div>'+
+    '<div class="field"><label>Machine model</label>'+
+      '<div class="row" style="gap:6px">'+
+      '<input id="qlMachine" class="grow" value="'+esc(L&&L.machine&&L.machine!=='\u2014'?L.machine:'')+'" placeholder="Ricoh MP 3055" list="qlModels">'+
+      '</div>'+
+      '<datalist id="qlModels">'+
+        (DB.models||[]).map(function(m){ return '<option value="'+esc(m.name)+'">'; }).join('')+
+        // not-assigned machines (koi client nahi) bhi list mein
+        (DB.machines||[]).filter(function(m){ return !m.client && !m.cancelled; }).map(function(m){ return '<option value="'+esc(m.model||'')+(m.serial?' ('+esc(m.serial)+')':'')+'">'; }).join('')+
+      '</datalist>'+
+      '<div class="row" style="gap:6px;margin-top:6px">'+
+        '<button type="button" class="btn ghost sm" onclick="qlShowFeatures()">\u2699 Features</button>'+
+        '<button type="button" class="btn ghost sm" onclick="qlShowPictures()">\u{1F5BC} Pictures</button>'+
+      '</div>'+
+      '<div class="help">Model ka naam likhein (ya list se chunein). Features/Pictures dekhne ke liye pehle Models mein daale hon.</div></div>'+
     (rental
       ? '<div class="two">'+
           '<div class="field"><label>Rate per copy</label>'+
-            '<input id="qlRate" value="'+esc(L?L.rate||'':'')+'" placeholder="1.50"></div>'+
-          '<div class="field"><label>Copies</label>'+
-            '<input id="qlCopies" value="'+esc(L?L.copies||'':'')+'" placeholder="5,000"></div>'+
+            '<input id="qlRate" type="number" step="0.01" inputmode="decimal" value="'+esc(L?L.rate||'':'')+'" placeholder="1.50" oninput="qlAutoMonthly()"></div>'+
+          '<div class="field"><label>Minimum copies</label>'+
+            '<input id="qlCopies" type="number" inputmode="numeric" value="'+esc(L?L.copies||'':'')+'" placeholder="15000" oninput="qlAutoMonthly()"></div>'+
         '</div>'+
-        '<div class="field"><label>Monthly minimum</label>'+
+        '<div class="field"><label>Monthly minimum (auto)</label>'+
           '<input id="qlPrice" type="number" inputmode="decimal" value="'+(L?L.price||'':'')+'"></div>'
       : '<div class="two">'+
           '<div class="field"><label>How many</label>'+
@@ -3930,6 +3992,14 @@ function addQLine(id, idx){
      {t:(L?'Save':'Add'),cls:'',f:"saveQLine('"+id+"',"+(idx!=null?idx:-1)+")"}]);
 }
 
+/* Rental: rate per copy × minimum copies = monthly minimum (auto) */
+function qlAutoMonthly(){
+  var rate = parseFloat(($('qlRate')||{}).value) || 0;
+  var copies = parseFloat(($('qlCopies')||{}).value) || 0;
+  var pf = $('qlPrice');
+  if(pf && rate > 0 && copies > 0){ pf.value = Math.round(rate * copies); }
+}
+
 function saveQLine(id, idx){
   var x = byId(DB.quotes, id);
   var desc = $('qlDesc').value.trim();
@@ -3940,6 +4010,11 @@ function saveQLine(id, idx){
   if(x.type === 'rental'){
     l.rate = $('qlRate').value.trim();
     l.copies = $('qlCopies').value.trim();
+    // Monthly minimum khali ho to rate x copies se auto
+    if(!l.price || l.price === 0){
+      var rr = parseFloat(l.rate) || 0, cc = parseFloat(l.copies) || 0;
+      if(rr > 0 && cc > 0) l.price = Math.round(rr * cc);
+    }
   } else {
     l.qty = parseInt($('qlQty').value,10) || 1;
     l.enteredAs = $('qlAs') ? $('qlAs').value : 'before';
@@ -3963,6 +4038,14 @@ function dropQLine(id, i){
 
 /* ---------- printing one ---------- */
 function printQuote(id, forShare){ printQuotePro(id, forShare); }
+
+/* Download button: quotation PDF download kare (print dialog "Save as PDF") */
+function downloadQuote(id){
+  var x = byId(DB.quotes, id); if(!x) return;
+  // print window khole -> user "Save as PDF" kare (browser ka built-in)
+  printQuotePro(id, false);
+  toast('Print window khula \u2014 "Save as PDF" chunein download ke liye','good');
+}
 function printQuoteOld(id, forShare){
   var x = byId(DB.quotes, id);
   var b = BRANDS[x.brand];
