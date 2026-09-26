@@ -580,7 +580,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.24';
+var APP_VERSION = '1.26';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -792,8 +792,12 @@ function doSignin(){
   var rec = DB.users.filter(function(x){
     return String(x.email||'').toLowerCase() === u; })[0];
 
-  // NAYA PC / phone not connected: user ke apne credentials se KHUD server par join karo
-  if((!rec || !sharingOn())){
+  // Local pass check: rec hai aur uska password local mein hai aur match karta
+  var localPassOk = rec && rec.active && (rec.pass || rec.hash) && checkPass(rec, p);
+
+  // Server-verify chahiye: user nahi mila, YA connected nahi, YA local pass nahi/match nahi
+  // (server par password verify hoga - join endpoint)
+  if(!localPassOk){
     err.textContent = 'Connecting\u2026';
     var url = (DB.share && DB.share.url) || DEFAULT_SERVER;
     if(!/\/$/.test(url)) url += '/';
@@ -829,15 +833,20 @@ function doSignin(){
       });
       hashOldPasswords && hashOldPasswords();
       save();
-      // 3) ab login try karo (data aa gaya)
+      // 3) ab login karo. Server ne join mein password verify kar liya (j.ok tha),
+      //    isliye us user ko sign in kar do (local hash ho ya na ho).
       var rec2 = (DB.users||[]).filter(function(x){ return String(x.email||'').toLowerCase() === u; })[0];
-      if(rec2 && rec2.active && checkPass(rec2, p)){
-        err.textContent = ''; ME = rec2; DB.session = rec2.id; save();
-        try { if(typeof hrLogin === 'function') hrLogin(u, p); } catch(e){}
-        resumeSession();
-      } else {
-        err.textContent = 'That user name or password is not right.';
+      if(rec2 && rec2.active){
+        // agar local hash hai to bhi check, warna server ki auth par trust
+        var ok = (rec2.pass || rec2.hash) ? checkPass(rec2, p) : true;
+        if(ok){
+          err.textContent = ''; ME = rec2; DB.session = rec2.id; save();
+          try { if(typeof hrLogin === 'function') hrLogin(u, p); } catch(e){}
+          resumeSession();
+          return;
+        }
       }
+      err.textContent = 'That user name or password is not right.';
     })
     .catch(function(e){
       // join fail = galat username/password YA server na mila
@@ -3890,10 +3899,13 @@ function openQuote(id){
 
     [{t:'Close',cls:'ghost',f:'closeModal()'}]
       .concat(qOpen(x) && can('complaint.add')
-        ? [{t:'Log a call',cls:'ghost',f:"logCall('"+x.id+"')"},
-           {t:'+ Line',cls:'ghost',f:"addQLine('"+x.id+"')"}] : [])
+        ? [{t:'\u270E Edit',cls:'ghost',f:"closeModal();openQuoteForm('"+x.id+"')"},
+           {t:'+ Line',cls:'ghost',f:"addQLine('"+x.id+"')"},
+           {t:'Log a call',cls:'ghost',f:"logCall('"+x.id+"')"}] : [])
       .concat([{t:'Send',cls:'green',f:"shareQuote('"+x.id+"')"},
                {t:'\u2B07 Download',cls:'',f:"downloadQuote('"+x.id+"')"}])
+      .concat(can('complaint.add')
+        ? [{t:'\u{1F5D1} Delete',cls:'danger',f:"deleteQuote('"+x.id+"')"}] : [])
       .concat(qOpen(x) && can('complaint.add')
         ? [{t:'\u22EF',cls:'ghost',f:"quoteActions('"+x.id+"')"}] : [])
       .concat(x.state === 'accepted' && x.type !== 'rental' && can('money')
@@ -3902,6 +3914,18 @@ function openQuote(id){
 
 /* Closing a quotation is deliberate: each of these opens a form rather than
    firing on one tap, because a one-tap close is how the wrong one gets closed. */
+/* Quotation delete (confirm ke saath - poora hata do) */
+function deleteQuote(id){
+  var x = byId(DB.quotes, id); if(!x) return;
+  if(!confirm(x.no + ' \u2014 pakka delete karna hai? Ye wapas nahi aayega.')) return;
+  var i = (DB.quotes||[]).indexOf(x);
+  if(i >= 0) DB.quotes.splice(i, 1);
+  logIt('quote','Deleted ' + x.no, nameOf(DB.clients, x.client));
+  save(); closeModal(); draw();
+  if(sharingOn()) syncSoon();
+  toast(x.no + ' deleted','good');
+}
+
 function quoteActions(id){
   var x = byId(DB.quotes, id);
   modal('What happened to ' + x.no + '?',
