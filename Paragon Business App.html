@@ -580,7 +580,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.17';
+var APP_VERSION = '1.18';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -16463,7 +16463,10 @@ function syncNow(quiet){
    screen; only an unconnected one shows it. */
 function gateJoinButton(){
   var j = document.getElementById('gJoin');
-  if(j) j.style.display = sharingOn() ? 'none' : '';
+  if(j) j.style.display = 'none';  // hamesha hide - client seedha login kare
+  // Server address auto-set (agar khali ya purana http)
+  if(!DB.share) DB.share = { on:false, url:'', key:'', client:'', pc:'', auto:true, at:'' };
+  if(!DB.share.url || DB.share.url.indexOf('http://139.180.219.41:8080') === 0){ DB.share.url = DEFAULT_SERVER; save && save(); }
 }
 document.addEventListener('DOMContentLoaded', gateJoinButton);
 
