@@ -365,6 +365,27 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
  #mbox{border-radius:12px;margin-bottom:auto;margin-top:auto;max-height:86vh}
  #mwrap{align-items:center}
 }
+
+/* ===== CALL / VIDEO UI ===== */
+.call-wrap{position:fixed;inset:0;z-index:99999;background:linear-gradient(160deg,#0B2A5B,#123E86);
+  display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+  padding:40px 20px;color:#fff}
+.call-remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.call-local{position:absolute;top:20px;right:20px;width:110px;height:150px;object-fit:cover;
+  border-radius:12px;border:2px solid rgba(255,255,255,.4);z-index:2;background:#222}
+.call-voice{flex:1;display:flex;align-items:center;justify-content:center}
+.call-av{width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.15);
+  display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:700;
+  border:3px solid rgba(255,255,255,.3)}
+.call-top{position:relative;z-index:3;text-align:center;margin-top:30px}
+.call-name{font-size:26px;font-weight:700}
+.call-state{font-size:15px;color:rgba(255,255,255,.8);margin-top:6px}
+.call-btns{position:relative;z-index:3;display:flex;gap:24px;margin-bottom:20px}
+.call-btn{border:none;border-radius:50px;padding:16px 28px;font-size:16px;font-weight:600;
+  color:#fff;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.call-btn.green{background:#25D366}
+.call-btn.red{background:#E53935}
+
 </style>
 </head><body>
 
@@ -633,7 +654,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.44';
+var APP_VERSION = '1.45';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -10829,8 +10850,8 @@ function callUI(state){
   var name = _call ? esc(_call.peerName) : '';
   var video = _call && _call.video;
   var label = state === 'incoming'
-      ? (video ? 'Video call aa rahi hai\u2026' : 'Call aa rahi hai\u2026')
-      : state === 'calling' ? 'Ring ho rahi hai\u2026'
+      ? (video ? 'Incoming video call\u2026' : 'Incoming call\u2026')
+      : state === 'calling' ? 'Calling\u2026'
       : state === 'connected' ? 'Connected' : '';
 
   w.innerHTML =
