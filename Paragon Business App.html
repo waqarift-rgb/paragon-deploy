@@ -633,7 +633,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.35';
+var APP_VERSION = '1.40';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -3225,11 +3225,17 @@ function printThis(title){
    tab carries a count.
    ============================================================ */
 
-function tell(who, what, detail, link){
+function tell(who, what, detail, link, opts){
   if(!who) return;
+  // inactive user ko notification nahi (spec Part F)
+  var u = byId(DB.users, who);
+  if(u && u.active === false) return;
+  opts = opts || {};
   DB.notes = DB.notes || [];
   DB.notes.unshift({ id:uid(), to:who, what:what, detail:detail||'',
-                     link:link||'', at:now(), read:false, _at:now() });
+                     link:link||'', at:now(), read:false, _at:now(),
+                     cat:opts.cat||'', priority:opts.priority||'normal',
+                     linkType:opts.linkType||(link?'complaint':'none') });
   if(DB.notes.length > 400) DB.notes.length = 400;
 }
 
@@ -4057,7 +4063,10 @@ function addQLine(id, idx){
             '<input id="qlCopies" type="number" inputmode="numeric" value="'+esc(L?L.copies||'':'')+'" placeholder="15000" oninput="qlAutoMonthly()"></div>'+
         '</div>'+
         '<div class="field"><label>Monthly minimum (auto)</label>'+
-          '<input id="qlPrice" type="number" inputmode="decimal" value="'+(L?L.price||'':'')+'"></div>'
+          '<input id="qlPrice" type="number" inputmode="decimal" value="'+(L?L.price||'':'')+'"></div>'+
+        '<div class="field"><label>Rate per copy after minimum</label>'+
+          '<input id="qlAfterRate" type="number" step="0.01" inputmode="decimal" value="'+esc(L?L.afterRate||'':'')+'" placeholder="14">'+
+          '<div class="help">Minimum copies ke baad har extra copy ka rate (jaise Rs. 14). Khali chhodein to minimum wala rate.</div></div>'
       : '<div class="two">'+
           '<div class="field"><label>How many</label>'+
             '<input id="qlQty" type="number" inputmode="numeric" value="'+(L?L.qty||1:1)+'"></div>'+
@@ -4096,6 +4105,7 @@ function saveQLine(id, idx){
   if(x.type === 'rental'){
     l.rate = $('qlRate').value.trim();
     l.copies = $('qlCopies').value.trim();
+    l.afterRate = $('qlAfterRate') ? $('qlAfterRate').value.trim() : '';
     // Monthly minimum khali ho to rate x copies se auto
     if(!l.price || l.price === 0){
       var rr = parseFloat(l.rate) || 0, cc = parseFloat(l.copies) || 0;
@@ -4425,14 +4435,14 @@ function saveTask(kind){
     if(!t.who.length) return toast('Nobody is coming','bad');
     t.who.forEach(function(i){
       if(i !== ME.id)
-        tell(i, 'A meeting was set', what + ' \u00b7 ' + dtime(t.when)); });
+        tell(i, 'Meeting \u2014 ' + what, dtime(t.when) + (t.place ? ' \u00b7 ' + t.place : ''), t.id, {cat:'Meeting', priority:'important', linkType:'meeting'}); });
   } else {
     t.to = $('tfTo').value;
     t.every = $('tfEvery').value;
     /* something you give yourself is already yours */
     t.state = t.to === ME.id ? 'mine' : 'offered';
     if(t.to !== ME.id)
-      tell(t.to, 'A task was offered to you', what);
+      tell(t.to, 'Task assigned by ' + ME.name, '"' + what + '"' + (t.due ? '\nDue ' + dmyShort(t.due) : ''), t.id, {cat:'Task', priority:'important', linkType:'task'});
   }
 
   DB.tasks.unshift(t);
@@ -4506,7 +4516,7 @@ function openTask(id){
 function takeTask(id){
   var t = byId(DB.tasks, id);
   t.state = 'mine'; t.took = now(); t._at = now();
-  tell(t.by, 'Your task was accepted', t.what + ' \u00b7 ' + ME.name);
+  tell(t.by, ME.name + ' accepted your task', '"' + t.what + '"' + (t.due ? ' \u00b7 due ' + dmyShort(t.due) : ''), t.id, {cat:'Task', priority:'normal', linkType:'task'});
   logIt('task','Accepted: ' + t.what, '');
   save(); closeModal(); draw();
   toast('It is yours now','good');
@@ -4517,7 +4527,7 @@ function turnTask(id){
   var t = byId(DB.tasks, id);
   askReason('Why are you declining it?', function(why){
     t.state = 'turned'; t.turnedWhy = why; t.turnedAt = now(); t._at = now();
-    tell(t.by, 'A task was declined', t.what + ' \u00b7 ' + ME.name + ' \u2014 ' + why);
+    tell(t.by, ME.name + ' declined your task', '"' + t.what + '"\nReason: "' + why + '"', t.id, {cat:'Task', priority:'important', linkType:'task'});
     logIt('task','Declined: ' + t.what, why);
     save(); closeModal(); draw();
     toast('Declined, and they were told','good');
@@ -4626,7 +4636,7 @@ function endTask(id){
       done:'', notes:[], moves:0, moveLog:[],
       when: d, at:now(), _at:now() }));
   }
-  if(t.by !== ME.id) tell(t.by, 'A task was finished', t.what + ' \u00b7 ' + ME.name);
+  if(t.by !== ME.id) tell(t.by, ME.name + ' finished a task', '"' + t.what + '"', t.id, {cat:'Task', priority:'normal', linkType:'task'});
   logIt('task','Finished: ' + t.what, '');
   save(); closeModal(); draw();
   toast(t.every ? 'Done. The next one is waiting.' : 'Done','good');
@@ -5366,7 +5376,7 @@ function broadcastSend(){
   var sent = 0;
   DB.users.forEach(function(u){
     if(!u.active || u.role === 'operator' || u.id === ME.id) return;
-    tell(u.id, '\u{1F4E2} ' + (ME.name.split(' ')[0]) + ' says', msg, '');
+    tell(u.id, ME.name.split(' ')[0], msg, '', {cat:'System', priority:'normal', linkType:'none'});
     sent++;
   });
   logIt('broadcast', 'Message to team', msg.slice(0,60));
@@ -5377,29 +5387,38 @@ function broadcastSend(){
 /* ---------- complaints ---------- */
 
 function notifyLogged(c){
-  tellAll(admins(), 'Complaint logged',
+  tellAll(admins(), 'New complaint \u2014 ' + nameOf(DB.clients, c.client),
     jobLine(c) + ' \u00b7 ' + c.what.slice(0,70) +
-    (c.pri === 'High' ? ' \u00b7 HIGH' : ''), c.id);
+    (c.pri === 'High' ? ' \u00b7 HIGH' : ''), c.id,
+    {cat:'Complaint', priority:'normal', linkType:'complaint'});
 }
 
 function notifyAssigned(c){
-  tell(c.tech, 'A job was given to you',
+  tell(c.tech, 'Complaint assigned \u2014 ' + nameOf(DB.clients, c.client),
     jobLine(c) + ' \u00b7 ' + c.what.slice(0,70) +
-    (c.cheque ? ' \u00b7 cheque to collect' : ''), c.id);
-  tellAll(admins(), 'Technician assigned',
-    nameOf(DB.users, c.tech) + ' \u2192 ' + jobLine(c), c.id);
+    ' \u00b7 Priority ' + (c.pri || 'Normal') +
+    (c.cheque ? ' \u00b7 cheque to collect' : ''), c.id,
+    {cat:'Complaint', priority:'important', linkType:'complaint'});
+  tellAll(admins(), 'Complaint assigned \u2014 ' + nameOf(DB.clients, c.client),
+    jobLine(c) + ' \u00b7 Assigned to ' + nameOf(DB.users, c.tech), c.id,
+    {cat:'Complaint', priority:'important', linkType:'complaint'});
 }
 
 function notifyResolved(c){
-  tellAll(admins(), 'Job resolved',
+  tellAll(admins(), 'Resolved \u2014 ' + nameOf(DB.clients, c.client),
     jobLine(c) + ' \u00b7 by ' + nameOf(DB.users, c.tech) +
-    (c.counter ? ' \u00b7 counter ' + c.counter.toLocaleString() : ''), c.id);
+    (c.fix ? '\nWork done: "' + String(c.fix).slice(0,60) + '"' : '') +
+    (c.counter ? ' \u00b7 Counter ' + c.counter.toLocaleString() : ''), c.id,
+    {cat:'Complaint', priority:'normal', linkType:'complaint'});
 }
 
 /* the technician is finished; it is for the office to decide what next */
 function notifyNeedsParts(c, note){
-  tellAll(admins(), 'Resolved but parts are needed',
-    jobLine(c) + ' \u00b7 ' + (note || '').slice(0,70), c.id);
+  tellAll(admins(), 'Parts needed \u2014 ' + nameOf(DB.clients, c.client),
+    jobLine(c) + ' \u00b7 ' + nameOf(DB.users, c.tech) +
+    '\nThe technician is finished. A decision is needed on parts.' +
+    (note ? '\n"' + String(note).slice(0,60) + '"' : ''), c.id,
+    {cat:'Complaint', priority:'important', linkType:'complaint'});
 }
 
 function notifyCheque(c){
@@ -5423,39 +5442,45 @@ function notifyScanned(c){
 
 function notifyPartAsked(p, c){
   tellAll(storeFolk().concat(admins()), 'Part requested',
-    q(p,'qty') + ' \u00d7 ' + p.name + ' \u00b7 ' + (c ? jobLine(c) : '') +
-    ' \u00b7 by ' + (p.byName || ''), c ? c.id : '');
+    (p.code ? p.code + ' \u2014 ' : '') + p.name + ' \u00d7 ' + q(p,'qty') +
+    '\nBy ' + (p.byName || '') + (c ? ' \u00b7 ' + jobLine(c) : ''), c ? c.id : '',
+    {cat:'Part', priority:'important', linkType:'part_request'});
 }
 
 function notifyPartReady(p, c){
-  tell(p.by, 'A part is ready at the store',
-    q(p,'issued') + ' \u00d7 ' + p.name + ' \u00b7 ' + (c ? jobLine(c) : ''),
-    c ? c.id : '');
+  tell(p.by, 'Part issued \u2014 collect from the store',
+    (p.code ? p.code + ' \u2014 ' : '') + p.name + ' \u00d7 ' + q(p,'issued') +
+    (c ? '\nFor ' + jobLine(c) : ''), c ? c.id : '',
+    {cat:'Part', priority:'important', linkType:'complaint'});
 }
 
 function notifyPartRejected(p, c, n, why){
   tellAll(storeFolk().concat(admins()), 'Part rejected',
-    n + ' \u00d7 ' + p.name + ' \u00b7 ' + (c ? jobLine(c) : '') +
-    ' \u00b7 ' + (why || '').slice(0,60), c ? c.id : '');
+    (p.code ? p.code + ' \u2014 ' : '') + p.name + ' \u00d7 ' + n +
+    (c ? '\nBy ' + nameOf(DB.users, c.tech) + ' \u00b7 ' + jobLine(c) : '') +
+    '\nReason: "' + (why || '').slice(0,50) + '"', c ? c.id : '',
+    {cat:'Part', priority:'important', linkType:'complaint'});
 }
 
 /* a loss, and somebody should know the same day */
 function notifyPartLost(p, c, n, why){
   var s = p.stock ? byId(DB.stock, p.stock) : null;
   var worth = s ? n * (q(p,'unitCost') || q(s,'cost')) : 0;
-  tellAll(admins(), 'Part written off',
-    n + ' \u00d7 ' + p.name +
+  tellAll(admins(), 'Part reported lost',
+    (p.code ? p.code + ' \u2014 ' : '') + p.name + ' \u00d7 ' + n +
     (worth ? ' \u00b7 about Rs. ' + Math.round(worth).toLocaleString('en-PK') : '') +
-    ' \u00b7 ' + (c ? jobLine(c) : '') + ' \u00b7 ' + (why || '').slice(0,50),
-    c ? c.id : '');
+    (c ? '\n' + nameOf(DB.users, c.tech) + ' \u00b7 ' + jobLine(c) : '') +
+    '\nReason: "' + (why || '').slice(0,50) + '"', c ? c.id : '',
+    {cat:'Part', priority:'critical', linkType:'complaint'});
 }
 
 /* ---------- the store ---------- */
 
 function notifyLowStock(s){
   var left = shelf(s.id);
-  tellAll(storeFolk().concat(admins()), 'Low stock',
-    stockLabel(s) + ' \u00b7 ' + left + ' left, minimum is ' + q(s,'min'), '');
+  tellAll(storeFolk().concat(admins()), (left <= 0 ? 'Part out of stock' : 'Part below minimum'),
+    stockLabel(s) + '\n' + left + ' in store \u00b7 minimum is ' + q(s,'min'), '',
+    {cat:'Inventory', priority:'important', linkType:'none'});
 }
 
 /* called after anything that moves the shelf, and only when it crosses */
@@ -5495,14 +5520,17 @@ function checkOldParts(){
     if(DB.told[key]) return;
     DB.told[key] = 1;
 
-    tell(r.p.by, 'An old part is still owed',
-      r.owed + ' \u00d7 ' + r.p.name + ' \u00b7 ' + (c ? jobLine(c) : '') +
-      ' \u00b7 fitted ' + r.days + ' days ago', c ? c.id : '');
+    tell(r.p.by, 'Used part not yet returned',
+      (r.p.code ? r.p.code + ' \u2014 ' : '') + r.p.name +
+      '\nRemoved ' + r.days + ' days ago \u00b7 please return it to the store' +
+      (c ? '\n' + jobLine(c) : ''), c ? c.id : '',
+      {cat:'Part', priority:'important', linkType:'complaint'});
 
     if(r.days >= 7)
-      tellAll(admins(), 'An old part has not come back',
-        r.owed + ' \u00d7 ' + r.p.name + ' \u00b7 ' +
-        (r.p.byName || '') + ' \u00b7 ' + r.days + ' days', c ? c.id : '');
+      tellAll(admins(), 'Used part overdue \u2014 ' + (r.p.byName || ''),
+        (r.p.code ? r.p.code + ' \u2014 ' : '') + r.p.name +
+        '\n' + r.days + ' days outstanding' + (c ? ' \u00b7 ' + c.no : ''), c ? c.id : '',
+        {cat:'Part', priority:'important', linkType:'complaint'});
   });
   if(late.length) save();
 }
@@ -5558,7 +5586,104 @@ function sweep(){
   try {
     (DB.stock || []).forEach(function(s){ checkLowStock(s.id); });
   } catch(e){}
+  try { dailySummaries(); } catch(e){}
   drawTabs();
+}
+
+/* ---------- daily summaries (D1-D8) — role-based, once per day per slot ----------
+   Spec A11: morning brief 08:30, evening wrap 17:30, checkout 18:45, night 19:00.
+   Fires only for the signed-in user, only if there is something to report. */
+function dailySummaries(){
+  if(!ME || !sharingOn()) return;
+  var now = new Date();
+  var hh = now.getHours(), mm = now.getMinutes();
+  var mins = hh*60 + mm;
+  var day = today();
+  DB.told = DB.told || {};
+  var once = function(slot){
+    var key = 'daily|' + slot + '|' + ME.id + '|' + day;
+    if(DB.told[key]) return false;
+    DB.told[key] = 1; save(); return true;
+  };
+  var myOpen = (DB.complaints||[]).filter(function(c){
+    return c.tech===ME.id && ['pending','started','parts'].indexOf(c.status)>-1; });
+  var firstJob = myOpen[0];
+  var firstLine = firstJob ? (nameOf(DB.clients, firstJob.client) +
+    (function(){var m=byId(DB.machines,firstJob.machine); return m&&m.place?', '+m.place:'';})() +
+    ' \u2014 "' + String(firstJob.what||'').slice(0,40) + '"') : '';
+
+  // ---- MORNING 08:30 (08:30-09:00 window) ----
+  if(mins >= 510 && mins < 540){
+    if(ME.role==='tech' && myOpen.length && once('m-tech')){
+      var toFit=(DB.parts||[]).filter(function(p){return p.by===ME.id && q(p,'issued')>0 && !p.fitted;}).length;
+      var toRet=(DB.parts||[]).filter(function(p){return p.by===ME.id && wantsOldBack(p) && (q(p,'installed')-q(p,'oldBack'))>0;}).length;
+      tell(ME.id, 'Your day \u2014 ' + myOpen.length + ' job' + (myOpen.length>1?'s':''),
+        myOpen.length + ' complaint' + (myOpen.length>1?'s':'') +
+        (toFit?' \u00b7 ' + toFit + ' parts to fit':'') +
+        (toRet?' \u00b7 ' + toRet + ' to return':'') +
+        (firstLine?'\nFirst: ' + firstLine:''), firstJob?firstJob.id:'',
+        {cat:'Complaint', priority:'important', linkType:'complaint'});
+    }
+    if(ME.role==='store' && once('m-store')){
+      var waiting=(DB.parts||[]).filter(function(p){return q(p,'qty')>0 && !q(p,'issued') && !p.rejected;}).length;
+      var toRecv=(DB.parts||[]).filter(function(p){return wantsOldBack(p) && (q(p,'installed')-q(p,'oldBack'))>0;}).length;
+      var lowN=(DB.stock||[]).filter(function(s){return q(s,'min') && shelf(s.id)<=q(s,'min');}).length;
+      if(waiting || toRecv || lowN)
+        tell(ME.id, 'Your day \u2014 ' + waiting + ' to issue, ' + toRecv + ' to receive',
+          waiting + ' part request' + (waiting!==1?'s':'') + ' waiting' +
+          (toRecv?'\n' + toRecv + ' parts to receive back':'') +
+          (lowN?'\n' + lowN + ' parts below minimum':''), '',
+          {cat:'Inventory', priority:'important', linkType:'none'});
+    }
+    if(ME.role==='admin' && once('m-admin')){
+      var unassigned=(DB.complaints||[]).filter(function(c){return c.status==='pending' && !c.tech;}).length;
+      var openN=(DB.complaints||[]).filter(function(c){return ['pending','started','parts'].indexOf(c.status)>-1;}).length;
+      var lowN2=(DB.stock||[]).filter(function(s){return q(s,'min') && shelf(s.id)<=q(s,'min');}).length;
+      if(unassigned || openN || lowN2)
+        tell(ME.id, 'Today \u2014 ' + (unassigned+lowN2) + ' things need you',
+          unassigned + ' unassigned \u00b7 ' + openN + ' open complaints' +
+          (lowN2?'\n' + lowN2 + ' parts below minimum':''), '',
+          {cat:'Complaint', priority:'important', linkType:'none'});
+    }
+  }
+  // ---- EVENING 17:30 (17:30-18:00) ----
+  if(mins >= 1050 && mins < 1080){
+    if(ME.role==='tech' && myOpen.length && once('e-tech')){
+      var hold=(DB.parts||[]).filter(function(p){return p.by===ME.id && wantsOldBack(p) && (q(p,'installed')-q(p,'oldBack'))>0;}).length;
+      tell(ME.id, myOpen.length + ' still open today',
+        (firstLine||'') + (hold?'\nYou are holding ' + hold + ' parts to return':'') +
+        '\nRemember to check out at 18:00.', firstJob?firstJob.id:'',
+        {cat:'Complaint', priority:'important', linkType:'complaint'});
+    }
+    if(ME.role==='store' && once('e-store')){
+      var waiting2=(DB.parts||[]).filter(function(p){return q(p,'qty')>0 && !q(p,'issued') && !p.rejected;}).length;
+      if(waiting2)
+        tell(ME.id, waiting2 + ' still waiting',
+          waiting2 + ' request' + (waiting2!==1?'s':'') + ' not yet issued', '',
+          {cat:'Inventory', priority:'normal', linkType:'none'});
+    }
+  }
+  // ---- CHECK-OUT REMINDER 18:45 (18:45-19:00) ----
+  if(mins >= 1125 && mins < 1140 && once('checkout')){
+    // agar aaj check-in hua magal check-out nahi
+    var att = (DB.hr && DB.hr.today) ? DB.hr.today : null;
+    var checkedIn = att && att.in && !att.out;
+    if(checkedIn)
+      tell(ME.id, 'You have not checked out',
+        'You checked in at ' + (att.in||'') + '.\nCheck out so your hours are recorded correctly.', '',
+        {cat:'Attendance', priority:'important', linkType:'none'});
+  }
+
+  // ---- NIGHT 19:00 (19:00-19:30) admin ----
+  if(mins >= 1140 && mins < 1170 && ME.role==='admin' && once('n-admin')){
+    var res=(DB.complaints||[]).filter(function(c){return (c.status==='resolved'||c.status==='closed') && String(c.resolved||'').slice(0,10)===day;}).length;
+    var newN=(DB.complaints||[]).filter(function(c){return String(c.opened||c._at||'').slice(0,10)===day;}).length;
+    var stillOpen=(DB.complaints||[]).filter(function(c){return ['pending','started','parts'].indexOf(c.status)>-1;}).length;
+    if(res || newN)
+      tell(ME.id, 'Today \u2014 ' + res + ' resolved, ' + newN + ' new',
+        'Resolved ' + res + ' \u00b7 New ' + newN + ' \u00b7 Still open ' + stillOpen, '',
+        {cat:'Complaint', priority:'normal', linkType:'none'});
+  }
 }
 
 
@@ -5578,11 +5703,11 @@ function birthdayCheck(){
     /* sab ko batao — us ke ilawa */
     DB.users.forEach(function(o){
       if(!o.active || o.role === 'operator' || o.id === u.id) return;
-      tell(o.id, '\u{1F382} Aaj ' + u.name.split(' ')[0] + ' ki salgirah hai',
+      tell(o.id, 'Today is ' + u.name.split(' ')[0] + '\u2019s birthday',
            'Team ki taraf se mubarak keh dein!', '');
     });
     /* khud us ko bhi */
-    tell(u.id, '\u{1F382} Salgirah Mubarak, ' + u.name.split(' ')[0] + '!',
+    tell(u.id, 'Happy birthday, ' + u.name.split(' ')[0],
          'Poori Paragon team ki taraf se dher saari mubarakbaad.', '');
   });
   /* purani yaad-dahani saaf */
@@ -6722,7 +6847,7 @@ function checkContracts(){
       tellAll(admins(), d.blocks ? 'A contract ends today' : 'A rental ends today',
         line, '');
     } else {
-      tellAll(admins(), 'A contract ends in ' + left + ' days', line, '');
+      tellAll(admins(), 'Contract expiring in ' + left + ' days', line, '', {cat:'Contract', priority:(left<=30?'important':'normal'), linkType:'contract'});
     }
   });
   save();
@@ -10080,8 +10205,9 @@ function printQuotePro(id, forShare){
         var beforeR = (x.tax && rate) ? amtR : amtR;
         var ttR = x.tax ? beforeR * rate / 100 : 0;
         catTotal += beforeR + ttR; grand += beforeR; grandTax += ttR;
+        var afterNote = (l.afterRate && parseFloat(l.afterRate)>0) ? '<div class="qp-sub">After '+(mincopies?mincopies.toLocaleString('en-PK'):'')+' copies: Rs. '+parseFloat(l.afterRate)+' / copy</div>' : '';
         rows += '<tr><td>'+(i+1)+'</td>'+
-          '<td><b>'+esc(l.desc)+'</b>'+(l.machine && l.machine!=='\u2014'?'<div class="qp-sub">'+esc(l.machine)+'</div>':'')+'</td>'+
+          '<td><b>'+esc(l.desc)+'</b>'+(l.machine && l.machine!=='\u2014'?'<div class="qp-sub">'+esc(l.machine)+'</div>':'')+afterNote+'</td>'+
           '<td class="num">Rs. '+rpc+' / copy</td><td class="num">'+(mincopies?mincopies.toLocaleString('en-PK'):'')+'</td>'+
           (x.tax ? '<td class="num">'+qpRs(beforeR)+'</td><td class="num">'+(rate)+'%<div class="qp-sub">'+qpRs(ttR)+'</div></td>' : '')+
           '<td class="num"><b>'+qpRs(beforeR+ttR)+'</b></td></tr>';
@@ -10443,7 +10569,7 @@ function qpRender(title, body, forShare){
       '<button class="dv-x" onclick="docViewClose()">\u2715 Close</button>'+
       '<div class="dv-t">'+esc(title)+'</div>'+
       '<div class="dv-acts">'+
-        '<button onclick="docViewPrint()">\u{1F5A8}\uFE0F Print</button>'+
+        '<button onclick="docViewDownload()">\u2B07 Download</button>'+
       '</div>'+
     '</div>'+
     '<iframe id="dvFrame" class="dv-frame"></iframe>';
@@ -10458,6 +10584,35 @@ function docViewClose(){
   var w = document.getElementById('docView');
   if(w){ w.style.opacity='0'; setTimeout(function(){ if(w.parentNode) w.parentNode.removeChild(w); }, 200); }
 }
+/* Download button: PDF file phone/browser par download kare */
+function docViewDownload(){
+  var html = window._docViewHtml || '';
+  var title = (window._pdfTitle || 'Quotation').replace(/[^\w\-]+/g,'_');
+  // APK: Android ka PDF save/share
+  if(window.Android && typeof Android.savePdf === 'function' && html){
+    Android.savePdf(html, title + '.pdf'); return;
+  }
+  if(window.Android && typeof Android.sharePdf === 'function' && html){
+    Android.sharePdf(html, title + '.pdf'); return;
+  }
+  // Browser: naya window mein print dialog -> "Save as PDF"
+  var fr = document.getElementById('dvFrame');
+  if(fr && fr.contentWindow){
+    fr.contentWindow.focus();
+    fr.contentWindow.print();
+    toast('Choose "Save as PDF" to download','good');
+    return;
+  }
+  // fallback: HTML file download
+  try{
+    var blob = new Blob([html], {type:'text/html'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = title + '.html';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }catch(e){ toast('Download failed','bad'); }
+}
+
 function docViewPrint(){
   /* APK: Android ka print/PDF (WebView iframe print nahi chalta).
      Browser: iframe print. */
@@ -10714,6 +10869,22 @@ function pushCfg(state){
     if(state) jobs.push(c.put('/state', new Response(JSON.stringify(state))));
     return Promise.all(jobs);
   }).catch(function(){});
+}
+
+/* Login ke baad ek baar: agar notifications off hain to on karne ko kahe.
+   Isse assign/parts/complaints ke push notifications aane lagenge. */
+function pushAutoPrompt(){
+  if(!sharingOn()) return;                    // server chahiye
+  var st = (typeof pushState==='function') ? pushState() : 'none';
+  if(st !== 'off') return;                     // 'on' ya unsupported to kuch na karo
+  if(DB.pushAsked && DB.pushAsked === ME.id) return;  // is user se pehle poocha
+  setTimeout(function(){
+    modal('\u{1F514} Turn on notifications',
+      '<div class="note i">Get alerted the moment a job is assigned to you, a part is ready, or a new complaint comes in \u2014 even when the app is closed.</div>'+
+      '<div class="help">You can turn this off any time from More \u2192 Notifications.</div>',
+      [{t:'Not now',cls:'ghost',f:"DB.pushAsked=ME.id; save(); closeModal()"},
+       {t:'Turn on',cls:'',f:"DB.pushAsked=ME.id; save(); closeModal(); enablePush()"}]);
+  }, 2500);
 }
 
 function enablePush(){
@@ -14990,18 +15161,18 @@ function voiceRecord(done){
     /* Saaf batao kya masla hai, warna sirf "not allowed" uljhata hai. */
     var name = err && err.name ? err.name : '';
     if(name === 'NotAllowedError' || name === 'SecurityError'){
-      modal('Mic ki ijazat nahi',
+      modal('Microphone permission needed',
         '<div class="note i">Microphone permission is needed to record a voice note.</div>'+
         '<ul style="font-size:13px;line-height:1.7">'+
-        '<li><b>App (phone) par:</b> Phone Settings \u2192 Apps \u2192 Paragon \u2192 Permissions \u2192 <b>Microphone</b> ON karein. Phir app dobara kholein.</li>'+
-        '<li><b>Browser par:</b> Address bar ke taala/\u24D8 par tap \u2192 Microphone <b>Allow</b>.</li>'+
+        '<li><b>On the phone app:</b> Phone Settings \u2192 Apps \u2192 Paragon \u2192 Permissions \u2192 turn <b>Microphone</b> ON. Then reopen the app.</li>'+
+        '<li><b>In the browser:</b> Tap the lock/\u24D8 in the address bar \u2192 set Microphone to <b>Allow</b>.</li>'+
         '<li>Or record a <b>voice note in WhatsApp</b> and send it here <b>from a file</b>.</li>'+
         '</ul>',
-        [{t:'Theek hai',cls:'',f:'closeModal()'}]);
+        [{t:'OK',cls:'',f:'closeModal()'}]);
     } else if(name === 'NotFoundError'){
       toast('No microphone found on this device','bad');
     } else {
-      toast('Record nahi ho saka \u2014 WhatsApp se record kar ke file se bhejein','bad');
+      toast('Could not record \u2014 record in WhatsApp and send it as a file','bad');
     }
   });
 }
@@ -15743,6 +15914,48 @@ function chatCss(){
 
 var _aset = null;
 
+/* Email (SMTP) settings — har company apni email se quotation bheje.
+   Admin-only, server par store hota (admin lock mein). */
+function emailSettingsBox(){
+  if(ME.role !== 'admin') return toast('These settings are for the admin','bad');
+  if(!sharingOn()) return toast('Connect this phone to the server first','bad');
+  DB.emailSettings = DB.emailSettings || {};
+  var brandKeys = Object.keys(BRANDS);
+  var body = '<div class="note i">Each company can send quotations from its own email. Enter the SMTP details (from your email provider). Kept on the server, admin only.</div>';
+  brandKeys.forEach(function(bk){
+    var s = DB.emailSettings[bk] || {};
+    body += '<div class="card" style="padding:12px;margin-bottom:12px;border-left:3px solid '+(BRANDS[bk].c1||'#1C2E4A')+'">'+
+      '<div class="ttl" style="margin-bottom:8px">'+esc(BRANDS[bk].name)+'</div>'+
+      '<div class="field"><label>From email</label><input id="em_'+bk+'_from" value="'+esc(s.from||'')+'" placeholder="sales@company.com" autocapitalize="off"></div>'+
+      '<div class="field"><label>From name</label><input id="em_'+bk+'_name" value="'+esc(s.name||BRANDS[bk].name)+'" placeholder="'+esc(BRANDS[bk].name)+'"></div>'+
+      '<div class="two">'+
+        '<div class="field"><label>SMTP host</label><input id="em_'+bk+'_host" value="'+esc(s.host||'')+'" placeholder="smtp.gmail.com" autocapitalize="off"></div>'+
+        '<div class="field"><label>Port</label><input id="em_'+bk+'_port" type="number" value="'+esc(s.port||'587')+'" placeholder="587"></div>'+
+      '</div>'+
+      '<div class="field"><label>SMTP username</label><input id="em_'+bk+'_user" value="'+esc(s.user||'')+'" placeholder="usually the email address" autocapitalize="off"></div>'+
+      '<div class="field"><label>SMTP password / app password</label><input id="em_'+bk+'_pass" type="password" value="'+esc(s.pass||'')+'" placeholder="app password" autocomplete="off"></div>'+
+      '<div class="help">Gmail: use an <b>App Password</b> (not your normal password). Host smtp.gmail.com, port 587.</div>'+
+    '</div>';
+  });
+  modal('Email settings', body,
+    [{t:'Cancel',cls:'ghost',f:'closeModal()'},{t:'Save',cls:'',f:'emailSettingsSave()'}]);
+}
+
+function emailSettingsSave(){
+  DB.emailSettings = DB.emailSettings || {};
+  Object.keys(BRANDS).forEach(function(bk){
+    var g=function(f){ var el=document.getElementById('em_'+bk+'_'+f); return el?el.value.trim():''; };
+    DB.emailSettings[bk] = {
+      from:g('from'), name:g('name'), host:g('host'),
+      port:g('port'), user:g('user'), pass:g('pass')
+    };
+  });
+  save();
+  if(sharingOn()) syncSoon();
+  closeModal();
+  toast('Email settings saved','good');
+}
+
 function adminSettingsBox(){
   if(ME.role !== 'admin') return toast('These settings are for the admin','bad');
   if(!sharingOn()) return toast('Connect this phone to the server first','bad');
@@ -15957,6 +16170,8 @@ function drawMore(){
     rows.push(['\u{1F4E2}','Message the team','Send a note to everyone at once', "broadcastBox()"]);
   if(ME.role === 'admin')
     rows.push(['\u2699\uFE0F','Admin Settings','Chat, location and other switches \u2014 only you', "adminSettingsBox()"]);
+  if(ME.role === 'admin')
+    rows.push(['\u{1F4E7}','Email settings','Each company\u2019s own email for sending quotations', "emailSettingsBox()"]);
   if(ME.role === 'admin' && sharingOn())
     rows.push(['\u{1F5FA}\uFE0F','Where the team is','Ask a phone for its location, see it on a map', "teamMap()"]);
   if(ME.role === 'admin')
@@ -16595,7 +16810,7 @@ var SYNC_KINDS = [
   ['buys','buys'],           ['scrapSales','scrap'],['quotes','quotes'],
   ['calls','calls'],         ['bills','bills'],     ['contracts','contracts'],
   ['models','models'],       ['tasks','tasks'],     ['notes','notes'],
-  ['goals','goals'],         ['habits','habits'],     ['visits','visits'],
+  ['goals','goals'], ['emailSettings','emailSettings'],         ['habits','habits'],     ['visits','visits'],
   ['rights','rights']
 ];
 
@@ -16777,6 +16992,7 @@ function startApp(){
   try { phoneConfig(); phoneNotify(); } catch(e){}
   try { birthdayCheck(); } catch(e){}
   try { pushLinks(); if(DB.pushOn) pushCfg(); } catch(e){}
+  try { pushAutoPrompt(); } catch(e){}
   try { attRefresh(); attFlush(); aiRefresh(); mdSync(); chatStart(); } catch(e){}
   setTimeout(sweep, 1500);   /* what is overdue, what is low, who to call */
   setInterval(sweep, 600000);
