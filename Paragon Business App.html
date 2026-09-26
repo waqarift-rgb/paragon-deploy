@@ -633,7 +633,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.42';
+var APP_VERSION = '1.44';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -10211,27 +10211,38 @@ function printQuotePro(id, forShare){
     var isRental = (x.type === 'rental');
     groups[cd.key].forEach(function(l, i){
       if(isRental){
-        // Rental: 2 rows — minimum charge + after-minimum rate
-        var rpc = parseFloat(l.rate) || 0;          // rate per copy (e.g. 15)
-        var mincopies = parseFloat(l.copies) || 0;   // minimum copies (e.g. 1500)
-        var afterRate = parseFloat(l.afterRate) || 0; // after-min rate (e.g. 14)
-        var amtR = (rpc && mincopies) ? rpc * mincopies : (parseFloat(l.price) || 0);
-        var beforeR = amtR;
-        var ttR = x.tax ? beforeR * rate / 100 : 0;
-        catTotal += beforeR + ttR; grand += beforeR; grandTax += ttR;
-        // ROW 1: Minimum print charge (rate x min copies = total)
-        rows += '<tr><td>'+(i+1)+'</td>'+
-          '<td><b>'+esc(l.desc || 'Minimum Print Charges')+'</b>'+(l.machine && l.machine!=='\u2014'?'<div class="qp-sub">'+esc(l.machine)+'</div>':'')+'</td>'+
-          '<td class="num">Rs. '+rpc+' / copy</td><td class="num">'+(mincopies?mincopies.toLocaleString('en-PK'):'')+'</td>'+
-          (x.tax ? '<td class="num">'+qpRs(beforeR)+'</td><td class="num">'+(rate)+'%<div class="qp-sub">'+qpRs(ttR)+'</div></td>' : '')+
-          '<td class="num"><b>'+qpRs(beforeR+ttR)+'</b></td></tr>';
-        // ROW 2: After minimum copies (only if afterRate set)
-        if(afterRate > 0){
-          rows += '<tr><td></td>'+
-            '<td><b>After '+(mincopies?mincopies.toLocaleString('en-PK'):'')+' copies</b><div class="qp-sub">every extra copy</div></td>'+
-            '<td class="num">Rs. '+afterRate+' / copy</td><td class="num">\u2014</td>'+
+        var rpc = parseFloat(l.rate) || 0;          // rate per copy
+        var mincopies = parseFloat(l.copies) || 0;   // minimum copies
+        // "after" line = jis mein desc mein 'after' ho, YA afterRate set ho.
+        // Us line ka Total Amount = "Rs X / copy" (total nahi banta).
+        var isAfterLine = /after/i.test(String(l.desc||'')) || (parseFloat(l.afterRate)||0) > 0;
+        if(isAfterLine){
+          // AFTER-COPIES line: sirf rate per copy dikhe, total mein add nahi
+          rows += '<tr><td>'+(i+1)+'</td>'+
+            '<td><b>'+esc(l.desc || 'After minimum copies')+'</b>'+(l.machine && l.machine!=='\u2014'?'<div class="qp-sub">'+esc(l.machine)+'</div>':'')+'</td>'+
+            '<td class="num">Rs. '+rpc+' / copy</td><td class="num">\u2014</td>'+
             (x.tax ? '<td class="num">\u2014</td><td class="num">\u2014</td>' : '')+
-            '<td class="num"><b>Rs. '+afterRate+' / copy</b></td></tr>';
+            '<td class="num"><b>Rs. '+rpc+' / copy</b></td></tr>';
+        } else {
+          // MINIMUM line: rate x min copies = total amount
+          var amtR = (rpc && mincopies) ? rpc * mincopies : (parseFloat(l.price) || 0);
+          var beforeR = amtR;
+          var ttR = x.tax ? beforeR * rate / 100 : 0;
+          catTotal += beforeR + ttR; grand += beforeR; grandTax += ttR;
+          rows += '<tr><td>'+(i+1)+'</td>'+
+            '<td><b>'+esc(l.desc || 'Minimum Print Charges')+'</b>'+(l.machine && l.machine!=='\u2014'?'<div class="qp-sub">'+esc(l.machine)+'</div>':'')+'</td>'+
+            '<td class="num">Rs. '+rpc+' / copy</td><td class="num">'+(mincopies?mincopies.toLocaleString('en-PK'):'')+'</td>'+
+            (x.tax ? '<td class="num">'+qpRs(beforeR)+'</td><td class="num">'+(rate)+'%<div class="qp-sub">'+qpRs(ttR)+'</div></td>' : '')+
+            '<td class="num"><b>'+qpRs(beforeR+ttR)+'</b></td></tr>';
+          // agar isi line par afterRate bhi set hai to extra after-row
+          var afterRate = parseFloat(l.afterRate) || 0;
+          if(afterRate > 0){
+            rows += '<tr><td></td>'+
+              '<td><b>After '+(mincopies?mincopies.toLocaleString('en-PK'):'')+' copies</b><div class="qp-sub">every extra copy</div></td>'+
+              '<td class="num">Rs. '+afterRate+' / copy</td><td class="num">\u2014</td>'+
+              (x.tax ? '<td class="num">\u2014</td><td class="num">\u2014</td>' : '')+
+              '<td class="num"><b>Rs. '+afterRate+' / copy</b></td></tr>';
+          }
         }
       } else {
         var qty = parseFloat(l.qty) || 1;
@@ -10667,8 +10678,14 @@ var _iceServers = [{ urls: 'stun:stun.l.google.com:19302' },
 
 /* chatCall upgrade: in-app on https, otherwise dialer */
 function callStart(convId, video){
-  if(!callSupported()){
-    /* No HTTPS \u2014 fall back to phone dialer */
+  // Diagnose kyun call in-app nahi (taake pata chale)
+  var why = [];
+  if(!window.RTCPeerConnection) why.push('WebRTC not available');
+  if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) why.push('mic/camera API not available');
+  if(!(location.protocol === 'https:' || location.hostname === 'localhost')) why.push('not on HTTPS');
+  if(why.length){
+    // In-app nahi ho sakta — reason batao, phir dialer
+    toast('In-app call not available: ' + why.join(', '), 'bad');
     return callDialer(convId);
   }
   var other = null;
