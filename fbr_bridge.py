@@ -2621,13 +2621,17 @@ class Handler(BaseHTTPRequestHandler):
             if os.path.isfile(fp):
                 data = open(fp, "rb").read()
                 low = safe.lower()
-                ctype = "application/pdf" if low.endswith(".pdf") else (
+                is_apk = low.endswith(".apk")
+                ctype = "application/vnd.android.package-archive" if is_apk else (
+                        "application/pdf" if low.endswith(".pdf") else (
                         "image/png" if low.endswith(".png") else (
-                        "image/jpeg" if (low.endswith(".jpg") or low.endswith(".jpeg")) else "application/octet-stream"))
+                        "image/jpeg" if (low.endswith(".jpg") or low.endswith(".jpeg")) else "application/octet-stream")))
                 self.send_response(200)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(data)))
-                self.send_header("Content-Disposition", 'inline; filename="' + safe + '"')
+                # APK ko force download; PDF/image ko inline (browser mein khule)
+                disp = "attachment" if (is_apk or low.endswith(".zip")) else "inline"
+                self.send_header("Content-Disposition", disp + '; filename="' + safe + '"')
                 self.end_headers()
                 self.wfile.write(data)
                 return
