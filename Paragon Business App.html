@@ -633,7 +633,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.40';
+var APP_VERSION = '1.42';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -3590,17 +3590,30 @@ function qfAuthChange(){
 
 function quoteNo(brand, type){
   DB.seq = DB.seq || {}; DB.seq.quote = DB.seq.quote || {};
-  var fmt;
+  var fmt, key, pre;
   if(brand === 'paragon'){
     var t = (type === 'rental') ? 'RN' : 'SL';
-    fmt = function(nnn){ return 'PCS/' + t + '/' + String(nnn).padStart(3,'0'); };
-    var key = 'paragon-' + t;
-    DB.seq.quote[key] = (DB.seq.quote[key] || 0) + 1;
-    save(); return fmt(DB.seq.quote[key]);
+    pre = 'PCS/' + t + '/';
+    fmt = function(nnn){ return pre + String(nnn).padStart(3,'0'); };
+    key = 'paragon-' + t;
+  } else {
+    pre = (brand === 'house' ? 'CH' : 'CS') + '-';
+    fmt = function(nnn){ return pre + String(nnn).padStart(3,'0'); };
+    key = brand;
   }
-  var pre = brand === 'house' ? 'CH' : 'CS';
-  DB.seq.quote[brand] = (DB.seq.quote[brand] || 0) + 1;
-  save(); return pre + '-' + String(DB.seq.quote[brand]).padStart(3,'0');
+  // Counter aur EXISTING quotes dono se max nikaalo — duplicate na ho
+  var counterN = DB.seq.quote[key] || 0;
+  var maxUsed = 0;
+  (DB.quotes || []).forEach(function(q){
+    if(q.no && q.no.indexOf(pre) === 0){
+      var n = parseInt(String(q.no).slice(pre.length), 10);
+      if(!isNaN(n) && n > maxUsed) maxUsed = n;
+    }
+  });
+  var next = Math.max(counterN, maxUsed) + 1;
+  DB.seq.quote[key] = next;
+  save();
+  return fmt(next);
 }
 
 var QT_VIEW = 'quotes';
@@ -10198,19 +10211,28 @@ function printQuotePro(id, forShare){
     var isRental = (x.type === 'rental');
     groups[cd.key].forEach(function(l, i){
       if(isRental){
-        // Rental: rate per copy × minimum copies = minimum print charge
-        var rpc = parseFloat(l.rate) || 0;         // rate per copy (e.g. 15)
-        var mincopies = parseFloat(l.copies) || 0;  // minimum copies (e.g. 1500)
+        // Rental: 2 rows — minimum charge + after-minimum rate
+        var rpc = parseFloat(l.rate) || 0;          // rate per copy (e.g. 15)
+        var mincopies = parseFloat(l.copies) || 0;   // minimum copies (e.g. 1500)
+        var afterRate = parseFloat(l.afterRate) || 0; // after-min rate (e.g. 14)
         var amtR = (rpc && mincopies) ? rpc * mincopies : (parseFloat(l.price) || 0);
-        var beforeR = (x.tax && rate) ? amtR : amtR;
+        var beforeR = amtR;
         var ttR = x.tax ? beforeR * rate / 100 : 0;
         catTotal += beforeR + ttR; grand += beforeR; grandTax += ttR;
-        var afterNote = (l.afterRate && parseFloat(l.afterRate)>0) ? '<div class="qp-sub">After '+(mincopies?mincopies.toLocaleString('en-PK'):'')+' copies: Rs. '+parseFloat(l.afterRate)+' / copy</div>' : '';
+        // ROW 1: Minimum print charge (rate x min copies = total)
         rows += '<tr><td>'+(i+1)+'</td>'+
-          '<td><b>'+esc(l.desc)+'</b>'+(l.machine && l.machine!=='\u2014'?'<div class="qp-sub">'+esc(l.machine)+'</div>':'')+afterNote+'</td>'+
+          '<td><b>'+esc(l.desc || 'Minimum Print Charges')+'</b>'+(l.machine && l.machine!=='\u2014'?'<div class="qp-sub">'+esc(l.machine)+'</div>':'')+'</td>'+
           '<td class="num">Rs. '+rpc+' / copy</td><td class="num">'+(mincopies?mincopies.toLocaleString('en-PK'):'')+'</td>'+
           (x.tax ? '<td class="num">'+qpRs(beforeR)+'</td><td class="num">'+(rate)+'%<div class="qp-sub">'+qpRs(ttR)+'</div></td>' : '')+
           '<td class="num"><b>'+qpRs(beforeR+ttR)+'</b></td></tr>';
+        // ROW 2: After minimum copies (only if afterRate set)
+        if(afterRate > 0){
+          rows += '<tr><td></td>'+
+            '<td><b>After '+(mincopies?mincopies.toLocaleString('en-PK'):'')+' copies</b><div class="qp-sub">every extra copy</div></td>'+
+            '<td class="num">Rs. '+afterRate+' / copy</td><td class="num">\u2014</td>'+
+            (x.tax ? '<td class="num">\u2014</td><td class="num">\u2014</td>' : '')+
+            '<td class="num"><b>Rs. '+afterRate+' / copy</b></td></tr>';
+        }
       } else {
         var qty = parseFloat(l.qty) || 1;
         var price = parseFloat(l.price) || 0;
@@ -10227,7 +10249,7 @@ function printQuotePro(id, forShare){
     });
     var col3 = isRental ? 'Rate per Copy' : 'Unit Price';
     var col4 = isRental ? 'Min. Copies' : 'Qty';
-    var col5 = isRental ? 'Min. Print Charge' : 'Amount';
+    var col5 = isRental ? 'Total Amount' : 'Amount';
     return '<div class="qp-cat">'+esc(cd.label)+
       '<span class="qp-cat-t">Category Total: '+qpRs(catTotal)+'</span></div>'+
       '<table class="qp-tbl"><tr><th>#</th><th>Description</th><th class="num">'+col3+'</th><th class="num">'+col4+'</th>'+
@@ -10243,7 +10265,9 @@ function printQuotePro(id, forShare){
       (c && c.address ? '<div class="qp-ca">'+esc(c.address)+'</div>' : ''),
       [['Quotation No', x.no], ['Date', dmyShort(x.date)], ['Valid Until', validTxt]])+
     tables+
-    (x.tax
+    (rental
+      ? ''
+      : x.tax
       ? '<div class="qp-tot"><div class="qp-tr"><span>Total (excl. tax)</span><b>'+qpRs(grand)+'</b></div>'+
         '<div class="qp-tr"><span>Sales tax '+rate+'%</span><b>'+qpRs(grandTax)+'</b></div>'+
         '<div class="qp-tr grand"><span>Payable</span><b>'+qpRs(grand+grandTax)+'</b></div></div>'
