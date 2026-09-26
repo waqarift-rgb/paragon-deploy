@@ -1044,6 +1044,51 @@ def admin_delete_client(cid):
     return {"ok": True, "msg": "Removed " + name}
 
 
+# ---- Public Documents (brochure/guides — client link se PDF khule, no login) ----
+PUBDOCS_DIR = os.path.join(HERE, "public_docs")
+
+def pubdocs_list():
+    try:
+        os.makedirs(PUBDOCS_DIR, exist_ok=True)
+        out = []
+        for fn in sorted(os.listdir(PUBDOCS_DIR)):
+            p = os.path.join(PUBDOCS_DIR, fn)
+            if os.path.isfile(p):
+                out.append({"name": fn, "size": os.path.getsize(p),
+                            "date": datetime.datetime.fromtimestamp(os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M")})
+        return out
+    except OSError:
+        return []
+
+def pubdoc_save(d):
+    name = str(d.get("name") or "").strip()
+    data = d.get("data") or ""
+    if not name:
+        return {"ok": False, "msg": "No file name."}
+    safe = "".join(ch for ch in name if ch.isalnum() or ch in "-_. ()") or "file"
+    try:
+        os.makedirs(PUBDOCS_DIR, exist_ok=True)
+        import base64
+        if data.startswith("data:"):
+            b64 = data.split(",", 1)[1] if "," in data else ""
+            raw = base64.b64decode(b64)
+        else:
+            raw = data.encode("utf-8")
+        with open(os.path.join(PUBDOCS_DIR, safe), "wb") as fh:
+            fh.write(raw)
+        return {"ok": True, "msg": "Saved " + safe, "name": safe}
+    except Exception as e:
+        return {"ok": False, "msg": "Could not save: " + str(e)[:100]}
+
+def pubdoc_delete(name):
+    safe = "".join(ch for ch in str(name or "") if ch.isalnum() or ch in "-_. ()")
+    p = os.path.join(PUBDOCS_DIR, safe)
+    try:
+        os.remove(p)
+        return {"ok": True}
+    except OSError:
+        return {"ok": False, "msg": "Could not remove."}
+
 # ---- Admin Documents (AI handover file + notes) ----
 DOCS_DIR = os.path.join(HERE, "admin_docs")
 
@@ -1133,6 +1178,9 @@ def admin_handle(path, req):
         _sessions.pop(req.get("token"), None)
         return {"ok": True, "msg": "Locked."}
     if path == "/admin/docs":      return {"ok": True, "docs": admin_docs_list()}
+    if path == "/admin/pubdocs":   return {"ok": True, "docs": pubdocs_list()}
+    if path == "/admin/pubdocsave":return pubdoc_save(req)
+    if path == "/admin/pubdocdel": return pubdoc_delete(req.get("name"))
     if path == "/admin/docsave":   return admin_doc_save(req)
     if path == "/admin/docget":    return admin_doc_get(req.get("name"))
     if path == "/admin/docdel":    return admin_doc_delete(req.get("name"))
@@ -1794,6 +1842,15 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
   </div>
 
   <div class="card">
+   <h2>Public Documents <span class="small" style="font-weight:400">(share link with clients — PDF opens directly, no login)</span></h2>
+   <p class="muted" style="margin:4px 0 12px">Upload brochures, key features, guides here. Copy the link and send it to a client — they open the PDF directly, no sign-in needed.</p>
+   <div style="margin-bottom:12px">
+     <input type="file" id="pubDocFile" onchange="uploadPubDoc(this)">
+   </div>
+   <div id="pubDocsList" class="small">Loading...</div>
+  </div>
+
+  <div class="card">
    <h2>Password</h2>
    <div class="row" style="margin-top:12px">
     <div class="field"><label>Current</label>
@@ -1870,6 +1927,7 @@ function doSignin(){
     $('topRight').innerHTML = '<button class="ghost sm" onclick="doLock()">Lock</button>';
     loadList();
     loadDocs();
+    loadPubDocs();
   });
 }
 
@@ -2441,6 +2499,50 @@ function delDoc(name){
     if(d.ok){ say('Removed', 'good'); loadDocs(); } else say(d.msg||'Failed','bad');
   });
 }
+/* ---- Public Documents (client link) ---- */
+function loadPubDocs(){
+  post('/admin/pubdocs').then(function(d){
+    var docs = (d && d.docs) || [];
+    var el = document.getElementById('pubDocsList');
+    if(!el) return;
+    if(!docs.length){ el.innerHTML = '<span style="color:#8794a3">No public files yet. Upload a brochure or guide above.</span>'; return; }
+    var base = window.location.origin;
+    el.innerHTML = docs.map(function(f){
+      var kb = Math.round(f.size/1024);
+      var link = base + '/doc/' + encodeURIComponent(f.name);
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eef1f5">'+
+        '<span>&#127760; <b>'+esc(f.name)+'</b> <span style="color:#8794a3">('+kb+' KB)</span></span>'+
+        '<span><button class="ghost sm" onclick="copyPubLink(this,\''+esc(f.name)+'\')">Copy Link</button> '+
+        '<button class="ghost sm" onclick="window.open(\''+link+'\',\'_blank\')">Open</button> '+
+        '<button class="danger sm" onclick="delPubDoc(\''+esc(f.name)+'\')">Remove</button></span></div>';
+    }).join('');
+  });
+}
+function uploadPubDoc(input){
+  var file = input.files && input.files[0]; if(!file) return;
+  var r = new FileReader();
+  r.onload = function(e){
+    post('/admin/pubdocsave', { name: file.name, data: e.target.result }).then(function(d){
+      if(d.ok){ say('Uploaded '+file.name, 'good'); loadPubDocs(); }
+      else say(d.msg || 'Upload failed', 'bad');
+      input.value='';
+    });
+  };
+  r.readAsDataURL(file);
+}
+function copyPubLink(btn, name){
+  var link = window.location.origin + '/doc/' + encodeURIComponent(name);
+  function done(){ var o=btn.textContent; btn.textContent='Copied!'; setTimeout(function(){btn.textContent=o;},1500); }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(link).then(done).catch(function(){ prompt('Copy this link:', link); });
+  } else { prompt('Copy this link:', link); }
+}
+function delPubDoc(name){
+  if(!confirm('Remove '+name+'?')) return;
+  post('/admin/pubdocdel', { name: name }).then(function(d){
+    if(d.ok){ say('Removed', 'good'); loadPubDocs(); } else say(d.msg||'Failed','bad');
+  });
+}
 
 boot();
 </script>
@@ -2507,6 +2609,32 @@ class Handler(BaseHTTPRequestHandler):
             # file nahi to JSON status
             self._send({"ok": True, "msg": "FBR bridge running. Invoice Manager file not found on server.",
                         "clients": len(load_clients())})
+            return
+
+        # PUBLIC document — /doc/<filename> — client link se PDF khule (no login)
+        if path.startswith("/doc/"):
+            fname = path[len("/doc/"):]
+            import urllib.parse
+            fname = urllib.parse.unquote(fname)
+            safe = "".join(ch for ch in fname if ch.isalnum() or ch in "-_. ()")
+            fp = os.path.join(PUBDOCS_DIR, safe)
+            if os.path.isfile(fp):
+                data = open(fp, "rb").read()
+                low = safe.lower()
+                ctype = "application/pdf" if low.endswith(".pdf") else (
+                        "image/png" if low.endswith(".png") else (
+                        "image/jpeg" if (low.endswith(".jpg") or low.endswith(".jpeg")) else "application/octet-stream"))
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Content-Disposition", 'inline; filename="' + safe + '"')
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Document not found.")
             return
 
         self._send({"ok": True, "msg": "FBR bridge is running.",
