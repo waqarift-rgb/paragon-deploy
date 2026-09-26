@@ -580,7 +580,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.26';
+var APP_VERSION = '1.28';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -3686,7 +3686,7 @@ function newQuote(){
 
 function openQuoteForm(id){
   var x = id ? byId(DB.quotes||[], id) : null;
-  modal(x ? 'Edit ' + x.no : 'New quotation',
+  modal(x ? 'Edit ' + x.no + ' (testing)' : 'New quotation',
     '<div class="field"><label>Brand</label><select id="qfBrand">'+
       Object.keys(BRANDS).map(function(k){
         return '<option value="'+k+'"'+(x&&x.brand===k?' selected':'')+'>'+
@@ -3898,10 +3898,11 @@ function openQuote(id){
     callHistory(x),
 
     [{t:'Close',cls:'ghost',f:'closeModal()'}]
-      .concat(qOpen(x) && can('complaint.add')
+      .concat(can('complaint.add')
         ? [{t:'\u270E Edit',cls:'ghost',f:"closeModal();openQuoteForm('"+x.id+"')"},
-           {t:'+ Line',cls:'ghost',f:"addQLine('"+x.id+"')"},
-           {t:'Log a call',cls:'ghost',f:"logCall('"+x.id+"')"}] : [])
+           {t:'+ Line',cls:'ghost',f:"addQLine('"+x.id+"')"}] : [])
+      .concat(qOpen(x) && can('complaint.add')
+        ? [{t:'Log a call',cls:'ghost',f:"logCall('"+x.id+"')"}] : [])
       .concat([{t:'Send',cls:'green',f:"shareQuote('"+x.id+"')"},
                {t:'\u2B07 Download',cls:'',f:"downloadQuote('"+x.id+"')"}])
       .concat(can('complaint.add')
@@ -3917,7 +3918,7 @@ function openQuote(id){
 /* Quotation delete (confirm ke saath - poora hata do) */
 function deleteQuote(id){
   var x = byId(DB.quotes, id); if(!x) return;
-  if(!confirm(x.no + ' \u2014 pakka delete karna hai? Ye wapas nahi aayega.')) return;
+  if(!confirm(x.no + ' \u2014 pakka delete karna hai? (Testing) Ye wapas nahi aayega.')) return;
   var i = (DB.quotes||[]).indexOf(x);
   if(i >= 0) DB.quotes.splice(i, 1);
   logIt('quote','Deleted ' + x.no, nameOf(DB.clients, x.client));
