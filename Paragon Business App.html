@@ -349,7 +349,7 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
     <!-- A phone not yet connected is shown the way to connect, not the
          starting login: that belongs in the installation guide, for the one
          person setting up the very first phone. -->
-    <div id="gJoin">
+    <div id="gJoin" style="display:none">
       <div class="help" style="margin:16px 0 8px">New phone? An admin connects it
         first.</div>
       <button class="btn ghost" onclick="joinServer()">Connect to the server</button>
@@ -580,7 +580,7 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.16';
+var APP_VERSION = '1.17';
 var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
@@ -613,6 +613,8 @@ function load(){
      address \u2014 only an admin's user name and password are needed to connect.
      A phone that is already connected is never touched. */
   if(!DB.share.on && !DB.share.url) DB.share.url = DEFAULT_SERVER;
+  // Purana http address ho to https par force (mixed content fix)
+  if(DB.share.url && DB.share.url.indexOf('http://139.180.219.41:8080') === 0){ DB.share.url = DEFAULT_SERVER; }
   DB.seq        = DB.seq        || { complaint: 1 };
   if(!DB.share.pc) DB.share.pc = 'pc-' + Math.random().toString(36).slice(2,7);
 
