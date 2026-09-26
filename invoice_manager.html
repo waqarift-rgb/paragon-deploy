@@ -505,7 +505,7 @@ tbody tr:hover{background:var(--surface-2)}
         Sign in with your account to continue.
       </div>
       <div class="lb-foot" style="color:rgba(255,255,255,.6)">Secure cloud platform · Powered by Paragon Business Solution</div>
-      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 28.4 · Proven Scenarios · 24-Sep-2026</div>
+      <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.4);font-family:monospace">Version 28.5 · Bridge Features · 24-Sep-2026</div>
     </div>
 
     <div class="login-card">
@@ -9107,7 +9107,10 @@ function aiCallApi(question, context){
 /* ═══ SECRET ERP — check functions ═══ */
 /* erpOn() - master ERP switch (false = hidden, no effect) */
 function erpOn(){
-  // Master must be true AND company must have erp access (per-client)
+  // Bridge se "erp" feature on ho to ERP dikhe (per-client, admin control)
+  var cf = (DB.company && DB.company.features) || {};
+  if(cf.erp === true) return true;  // admin ne is client ko ERP diya (bridge se)
+  // ya purana master switch
   if(!VENDOR.erpMaster) return false;  // switched OFF - hidden
   if(DB.company && DB.company.erpAccess === false) return false;  // client ko nahi diya
   return true;
@@ -9115,6 +9118,10 @@ function erpOn(){
 /* erpMod(name) - specific ERP module on? */
 function erpMod(name){
   if(!erpOn()) return false;
+  // Bridge se is module ka feature diya hai? (pos, crm, hr, inventory, etc.)
+  var cf = (DB.company && DB.company.features) || {};
+  if(cf[name] === false) return false;  // admin ne is module ko band kiya
+  if(cf[name] === true) return true;    // admin ne on kiya
   // PACKAGE-BASED: agar company ka package set hai, us ke modules check karo
   var pkg = DB.company && DB.company.package;
   if(pkg && VENDOR.packages && VENDOR.packages[pkg]){
@@ -13046,7 +13053,7 @@ var VENDOR = {
   web:     'pbsolution.com.pk',
   address: '32-J, PECHS Block 6, Shahrah-e-Faisal, Karachi',
   product: 'Invoice Manager',
-  version: '28.4',
+  version: '28.5',
   /* ═══════════════════════════════════════════════════════
      SECRET ERP SYSTEM — SWITCH OFF (hidden, no effect on current)
      Complete hone par: erpMaster = true karo → launch

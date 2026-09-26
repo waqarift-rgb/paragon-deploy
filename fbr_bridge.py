@@ -570,9 +570,29 @@ ADMIN_FEATURES = [
     ("fbrProof",      "FBR Tax Proof"),
     ("autoTax",       "Automatic Tax Rate"),
     ("commercial",    "Commercial Invoice"),
+    ("quotation",     "Quotations"),
     ("data",          "Backup & Restore"),
     ("users",         "User Management"),
     ("audit",         "Activity Log"),
+    # ---- POS & Retail ----
+    ("pos",           "POS Counter"),
+    ("loyalty",       "Loyalty / Store Card"),
+    ("inventory",     "Inventory"),
+    ("stores",        "Multi-Store / Branches"),
+    # ---- Tax Authorities (Services) ----
+    ("tax_srb",       "SRB (Sindh services)"),
+    ("tax_pra",       "PRA (Punjab services)"),
+    ("tax_kpra",      "KPRA (KP services)"),
+    ("tax_bra",       "BRA (Balochistan services)"),
+    # ---- ERP Extras ----
+    ("erp",           "ERP System (master)"),
+    ("crm",           "CRM"),
+    ("hr",            "HR & Payroll"),
+    ("purchase",      "Purchases"),
+    ("ledgers",       "Ledgers"),
+    ("expenses",      "Expenses"),
+    ("payments",      "Payments"),
+    ("accounting",    "Accounting"),
 ]
 
 
@@ -1024,6 +1044,66 @@ def admin_delete_client(cid):
     return {"ok": True, "msg": "Removed " + name}
 
 
+# ---- Admin Documents (AI handover file + notes) ----
+DOCS_DIR = os.path.join(HERE, "admin_docs")
+
+def admin_docs_list():
+    try:
+        os.makedirs(DOCS_DIR, exist_ok=True)
+        out = []
+        for fn in sorted(os.listdir(DOCS_DIR)):
+            p = os.path.join(DOCS_DIR, fn)
+            if os.path.isfile(p):
+                out.append({"name": fn, "size": os.path.getsize(p),
+                            "date": datetime.datetime.fromtimestamp(os.path.getmtime(p)).strftime("%Y-%m-%d %H:%M")})
+        return out
+    except OSError:
+        return []
+
+def admin_doc_save(d):
+    name = str(d.get("name") or "").strip()
+    data = d.get("data") or ""
+    if not name:
+        return {"ok": False, "msg": "No file name."}
+    # safe name only
+    safe = "".join(ch for ch in name if ch.isalnum() or ch in "-_. ()") or "file"
+    try:
+        os.makedirs(DOCS_DIR, exist_ok=True)
+        import base64
+        # data may be a data URL (base64) or plain text
+        if data.startswith("data:"):
+            b64 = data.split(",", 1)[1] if "," in data else ""
+            raw = base64.b64decode(b64)
+        else:
+            raw = data.encode("utf-8")
+        with open(os.path.join(DOCS_DIR, safe), "wb") as fh:
+            fh.write(raw)
+        try: os.chmod(os.path.join(DOCS_DIR, safe), 0o600)
+        except OSError: pass
+        return {"ok": True, "msg": "Saved " + safe}
+    except Exception as e:
+        return {"ok": False, "msg": "Could not save: " + str(e)[:100]}
+
+def admin_doc_get(name):
+    safe = "".join(ch for ch in str(name or "") if ch.isalnum() or ch in "-_. ()")
+    p = os.path.join(DOCS_DIR, safe)
+    try:
+        with open(p, "rb") as fh:
+            import base64
+            return {"ok": True, "name": safe, "data": base64.b64encode(fh.read()).decode("ascii")}
+    except OSError:
+        return {"ok": False, "msg": "File not found."}
+
+def admin_doc_delete(name):
+    safe = "".join(ch for ch in str(name or "") if ch.isalnum() or ch in "-_. ()")
+    p = os.path.join(DOCS_DIR, safe)
+    try:
+        os.remove(p)
+        return {"ok": True}
+    except OSError:
+        return {"ok": False, "msg": "Could not remove."}
+
+
 def admin_handle(path, req):
     """Everything under /admin/. Only sign-in and setup work without a session."""
     if path == "/admin/status":
@@ -1052,6 +1132,10 @@ def admin_handle(path, req):
     if path == "/admin/lock":
         _sessions.pop(req.get("token"), None)
         return {"ok": True, "msg": "Locked."}
+    if path == "/admin/docs":      return {"ok": True, "docs": admin_docs_list()}
+    if path == "/admin/docsave":   return admin_doc_save(req)
+    if path == "/admin/docget":    return admin_doc_get(req.get("name"))
+    if path == "/admin/docdel":    return admin_doc_delete(req.get("name"))
     if path == "/admin/password":
         if not admin_check(str(req.get("current") or "")):
             return {"ok": False, "msg": "The current password is wrong."}
@@ -1701,6 +1785,15 @@ code{font-family:Consolas,Menlo,monospace;font-size:12.5px;background:var(--soft
   </div>
 
   <div class="card">
+   <h2>Documents <span class="small" style="font-weight:400">(admin only — clients never see these)</span></h2>
+   <p class="muted" style="margin:4px 0 12px">Keep your AI handover report, notes and any files here. Only you, signed in to this admin page, can see them.</p>
+   <div style="margin-bottom:12px">
+     <input type="file" id="docFile" onchange="uploadDoc(this)">
+   </div>
+   <div id="docsList" class="small">Loading...</div>
+  </div>
+
+  <div class="card">
    <h2>Password</h2>
    <div class="row" style="margin-top:12px">
     <div class="field"><label>Current</label>
@@ -1776,6 +1869,7 @@ function doSignin(){
     hide('gate'); show('main');
     $('topRight').innerHTML = '<button class="ghost sm" onclick="doLock()">Lock</button>';
     loadList();
+    loadDocs();
   });
 }
 
@@ -1836,8 +1930,14 @@ var ADMIN_FEATURES = [
   ['items','Products'],['hs','HS Code Search'],['autoscenario','Auto Scenarios'],
   ['downloadAll','Download All (Excel/PDF)'],['bulkImport','Bulk Import'],
   ['emailInvoice','Email Invoices'],['fbrProof','FBR Tax Proof'],['autoTax','Automatic Tax Rate'],
-  ['commercial','Commercial Invoice'],['data','Backup & Restore'],['users','User Management'],
-  ['audit','Activity Log']
+  ['commercial','Commercial Invoice'],['quotation','Quotations'],['data','Backup & Restore'],
+  ['users','User Management'],['audit','Activity Log'],
+  ['pos','POS Counter'],['loyalty','Loyalty / Store Card'],['inventory','Inventory'],
+  ['stores','Multi-Store / Branches'],
+  ['tax_srb','SRB (Sindh services)'],['tax_pra','PRA (Punjab services)'],
+  ['tax_kpra','KPRA (KP services)'],['tax_bra','BRA (Balochistan services)'],
+  ['erp','ERP System (master)'],['crm','CRM'],['hr','HR & Payroll'],['purchase','Purchases'],
+  ['ledgers','Ledgers'],['expenses','Expenses'],['payments','Payments'],['accounting','Accounting']
 ];
 function showFeatures(id){
   var c = (window._clients || []).find(function(x){ return x.id === id; });
@@ -2296,6 +2396,49 @@ function changePw(){
     $('cpOld').value = ''; $('cpNew').value = '';
     TOKEN = ''; showGate();
     say('Password changed. Sign in with the new one.','good');
+  });
+}
+
+/* ---------- Admin Documents ---------- */
+function loadDocs(){
+  post('/admin/docs').then(function(d){
+    var docs = (d && d.docs) || [];
+    var el = document.getElementById('docsList');
+    if(!el) return;
+    if(!docs.length){ el.innerHTML = '<span style="color:#8794a3">No files yet. Upload your AI handover report or notes above.</span>'; return; }
+    el.innerHTML = docs.map(function(f){
+      var kb = Math.round(f.size/1024);
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eef1f5">'+
+        '<span>&#128196; <b>'+esc(f.name)+'</b> <span style="color:#8794a3">('+kb+' KB · '+esc(f.date)+')</span></span>'+
+        '<span><button class="ghost sm" onclick="downloadDoc(\''+esc(f.name)+'\')">Download</button> '+
+        '<button class="danger sm" onclick="delDoc(\''+esc(f.name)+'\')">Remove</button></span></div>';
+    }).join('');
+  });
+}
+function uploadDoc(input){
+  var file = input.files && input.files[0]; if(!file) return;
+  var r = new FileReader();
+  r.onload = function(e){
+    post('/admin/docsave', { name: file.name, data: e.target.result }).then(function(d){
+      if(d.ok){ say('Uploaded '+file.name, 'good'); loadDocs(); }
+      else say(d.msg || 'Upload failed', 'bad');
+      input.value='';
+    });
+  };
+  r.readAsDataURL(file);
+}
+function downloadDoc(name){
+  post('/admin/docget', { name: name }).then(function(d){
+    if(!d.ok){ say(d.msg||'Not found','bad'); return; }
+    var a = document.createElement('a');
+    a.href = 'data:application/octet-stream;base64,' + d.data;
+    a.download = d.name; a.click();
+  });
+}
+function delDoc(name){
+  if(!confirm('Remove '+name+'?')) return;
+  post('/admin/docdel', { name: name }).then(function(d){
+    if(d.ok){ say('Removed', 'good'); loadDocs(); } else say(d.msg||'Failed','bad');
   });
 }
 
