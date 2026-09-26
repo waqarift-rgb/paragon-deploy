@@ -580,8 +580,8 @@ function sGet(k){ try { return PERSIST ? localStorage.getItem(k) : (MEM[k]||null
 function sSet(k,v){ if(PERSIST){ try { localStorage.setItem(k,v); return; }
                     catch(e){ PERSIST = false; } } MEM[k] = v; }
 
-var APP_VERSION = '1.12';
-var DEFAULT_SERVER = 'http://139.180.219.41:8080/';
+var APP_VERSION = '1.16';
+var DEFAULT_SERVER = 'https://paragonerp.pbsolution.com.pk/';
 var DB = {};
 
 /* Password ke aage aankh \u2014 tap par dikhe/chhupe (WhatsApp jaisa). */
@@ -16302,7 +16302,7 @@ function shareForm(){
     'Paragon server, so work carries on when the signal does not.</div>'+
     '<div class="field"><label>Paragon server</label>'+
       '<input id="shUrl" value="'+esc(DB.share.url)+'" '+
-      'placeholder="http://your.server:8080/" autocapitalize="off">'+
+      'placeholder="https://paragonerp.pbsolution.com.pk/" autocapitalize="off">'+
       '<div class="help">The address <code>paragon_server.py</code> prints when '+
       'it starts.</div></div>'+
     '<div class="field"><label>Shared secret</label>'+
@@ -16473,7 +16473,7 @@ function joinServer(){
     'is then connected and locked, and the person using it never needs the '+
     'server\u2019s secret.</div>'+
     '<div class="field"><label>Server address</label>'+
-      '<input id="jnUrl" placeholder="http://139.180.219.41:8080/" '+
+      '<input id="jnUrl" placeholder="https://paragonerp.pbsolution.com.pk/" '+
       'autocapitalize="off" value="'+esc(DB.share.url||DEFAULT_SERVER)+'"></div>'+
       '<div class="help">Pehle se bhara hai \u2014 sirf niche admin ka user name aur password daalein.</div>'+
     '<div class="field"><label>Admin user name</label>'+
